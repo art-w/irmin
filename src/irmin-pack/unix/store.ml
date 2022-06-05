@@ -17,6 +17,8 @@
 open! Import
 include Store_intf
 
+let (let*) = Result.bind
+
 module Maker (Config : Conf.S) = struct
   type endpoint = unit
 
@@ -121,7 +123,7 @@ module Maker (Config : Conf.S) = struct
         include Atomic_write.Closeable (AW)
 
         let v ?fresh ?readonly path =
-          AW.v ?fresh ?readonly path >|= make_closeable
+          AW.v ?fresh ?readonly path |> make_closeable
       end
 
       module Slice = Irmin.Backend.Slice.Make (Contents) (Node) (Commit)
@@ -190,7 +192,7 @@ module Maker (Config : Conf.S) = struct
           let contents = Contents.CA.v ~config ~fm ~dict ~dispatcher in
           let node = Node.CA.v ~config ~fm ~dict ~dispatcher in
           let commit = Commit.CA.v ~config ~fm ~dict ~dispatcher in
-          let+ branch =
+          let branch =
             let root = Conf.root config in
             let fresh = Conf.fresh config in
             let readonly = Conf.readonly config in
@@ -270,30 +272,30 @@ module Maker (Config : Conf.S) = struct
             match t.running_gc with
             | Some _ ->
                 [%log.info "Repo is alreadying running GC. Skipping."];
-                Lwt.return false
+                false
             | None -> (
                 let result =
                   start ~unlink ~use_auto_finalisation ~new_files_path t
                     commit_key
                 in
                 match result with
-                | Ok _ -> Lwt.return true
+                | Ok _ -> true
                 | Error e -> Errs.raise_error e)
 
           let finalise_exn ?(wait = false) t =
-            let* result =
+            let result =
               match t.running_gc with
-              | None -> Lwt.return_ok `Idle
+              | None -> Ok `Idle
               | Some { gc; _ } ->
                   if t.during_batch then
-                    Lwt.return_error `Gc_forbidden_during_batch
+                    Error `Gc_forbidden_during_batch
                   else Gc.finalise ~wait gc
             in
             match result with
             | Ok (`Finalised _ as x) ->
                 t.running_gc <- None;
-                Lwt.return x
-            | Ok waited -> Lwt.return waited
+                x
+            | Ok waited -> waited
             | Error e ->
                 t.running_gc <- None;
                 Errs.raise_error e
@@ -307,11 +309,10 @@ module Maker (Config : Conf.S) = struct
 
           let try_auto_finalise_exn t =
             match t.running_gc with
-            | None | Some { use_auto_finalisation = false; _ } ->
-                Lwt.return_unit
+            | None | Some { use_auto_finalisation = false; _ } -> ()
             | Some { use_auto_finalisation = true; _ } ->
-                let* _ = finalise_exn ~wait:false t in
-                Lwt.return_unit
+                let _ = finalise_exn ~wait:false t in
+                ()
 
           let latest_gc_target t =
             let pl = File_manager.(Control.payload (control t.fm)) in
@@ -352,14 +353,14 @@ module Maker (Config : Conf.S) = struct
             in
             (* The GC action here does not matter, since we'll not fully
                finalise it *)
-            let* launched =
+            let launched =
               start_exn ~use_auto_finalisation:false ~new_files_path:path t
                 commit_key
             in
             let () =
               if not launched then Errs.raise_error `Forbidden_during_gc
             in
-            let* gced =
+            let gced =
               match t.running_gc with
               | None -> assert false
               | Some { gc; _ } -> Gc.finalise_without_swap gc
@@ -370,11 +371,10 @@ module Maker (Config : Conf.S) = struct
               |> Errs.raise_if_error
             in
             let branch_path = Irmin_pack.Layout.V4.branch ~root:path in
-            let* branch_store =
+            let branch_store =
               Branch.v ~fresh:true ~readonly:false branch_path
             in
-            let* () = Branch.close branch_store in
-            Lwt.return_unit
+            Branch.close branch_store
         end
 
         let is_split_allowed = Gc.is_allowed
@@ -410,7 +410,7 @@ module Maker (Config : Conf.S) = struct
           else
             let c0 = Mtime_clock.counter () in
             let try_finalise () = Gc.try_auto_finalise_exn t in
-            let* _ = try_finalise () in
+            let _ = try_finalise () in
             t.during_batch <- true;
             let contents = Contents.CA.cast t.contents in
             let node = Node.CA.Pack.cast t.node in
@@ -423,8 +423,8 @@ module Maker (Config : Conf.S) = struct
               [%log.info "[pack] batch completed in %.6fs" s];
               t.during_batch <- false;
               File_manager.flush t.fm |> Errs.raise_if_error;
-              let* _ = try_finalise () in
-              Lwt.return res
+              let _ = try_finalise () in
+              res
             in
             let on_fail exn =
               t.during_batch <- false;
@@ -443,18 +443,20 @@ module Maker (Config : Conf.S) = struct
               (* Kill gc process in at_exit. *)
               raise exn
             in
-            Lwt.try_bind (fun () -> f contents node commit) on_success on_fail
+            match f contents node commit with
+            | v -> on_success v
+            | exception exn -> on_fail exn
 
         let close t =
           (* Step 1 - Kill the gc process if it is running *)
           let _ = Gc.cancel t in
           (* Step 2 - Close the files *)
           let () = File_manager.close t.fm |> Errs.raise_if_error in
-          Branch.close t.branch >>= fun () ->
+          Branch.close t.branch;
           (* Step 3 - Close the in-memory abstractions *)
           Dict.close t.dict;
-          Contents.CA.close (contents_t t) >>= fun () ->
-          Node.CA.close (snd (node_t t)) >>= fun () ->
+          Contents.CA.close (contents_t t);
+          Node.CA.close (snd (node_t t));
           Commit.CA.close (snd (commit_t t))
       end
     end
@@ -490,8 +492,8 @@ module Maker (Config : Conf.S) = struct
       Integrity_checks.check_always ?ppf ~auto_repair ~check index
 
     let integrity_check_minimal ?ppf ?heads t =
-      let* heads =
-        match heads with None -> Repo.heads t | Some m -> Lwt.return m
+      let heads =
+        match heads with None -> Repo.heads t | Some m -> m
       in
       let hashes = List.map (fun x -> `Commit (Commit.key x)) heads in
       let iter ~contents ~node ~pred_node ~pred_commit repo =
@@ -531,7 +533,7 @@ module Maker (Config : Conf.S) = struct
         end) in
         let t = Stats.v () in
         let pred_node repo k =
-          X.Node.find (X.Repo.node_t repo) k >|= function
+          match X.Node.find (X.Repo.node_t repo) k with
           | None -> Fmt.failwith "key %a not found" pp_key k
           | Some v ->
               let width = X.Node.Val.length v in
@@ -556,7 +558,7 @@ module Maker (Config : Conf.S) = struct
         in
         (* We are traversing only one commit. *)
         let pred_commit repo k =
-          X.Commit.find (X.Repo.commit_t repo) k >|= function
+          match X.Commit.find (X.Repo.commit_t repo) k with
           | None -> []
           | Some c ->
               let node = X.Commit.Val.node c in
@@ -565,16 +567,15 @@ module Maker (Config : Conf.S) = struct
         in
         let pred_contents _repo k =
           Stats.visit_contents t (XKey.to_hash k);
-          Lwt.return []
+          []
         in
         (* We want to discover all paths to a node, so we don't cache nodes
            during traversal. *)
-        let* () =
+        let () =
           Repo.breadth_first_traversal ~cache_size:0 ~pred_node ~pred_commit
             ~pred_contents ~max:[ commit ] repo
         in
-        Stats.pp_results ~dump_blob_paths_to t;
-        Lwt.return_unit
+        Stats.pp_results ~dump_blob_paths_to t
 
       let run ~dump_blob_paths_to ~commit repo =
         Printexc.record_backtrace true;
@@ -610,7 +611,7 @@ module Maker (Config : Conf.S) = struct
           | exn -> raise exn
         in
         let error_msg = Fmt.str "[%s] resulted in error: %s" context err in
-        Lwt.return_error (`Msg error_msg)
+        Error (`Msg error_msg)
 
       let map_errors context (error : Errs.t) =
         let err_msg =
@@ -629,11 +630,11 @@ module Maker (Config : Conf.S) = struct
       let start repo commit_key =
         let root = Irmin_pack.Conf.root repo.X.Repo.config in
         try
-          let* started =
+          let started =
             X.Repo.Gc.start_exn ~unlink:true ~use_auto_finalisation:true
               ~new_files_path:root repo commit_key
           in
-          Lwt.return_ok started
+          Ok started
         with exn -> catch_errors "Start GC" exn
 
       let is_finished = X.Repo.Gc.is_finished
@@ -641,16 +642,16 @@ module Maker (Config : Conf.S) = struct
 
       let wait repo =
         try
-          let* result = finalise_exn ~wait:true repo in
+          let result = finalise_exn ~wait:true repo in
           match result with
           | `Running ->
               assert false (* [~wait:true] should never return [Running] *)
-          | `Idle -> Lwt.return_ok None
-          | `Finalised stats -> Lwt.return_ok @@ Some stats
+          | `Idle -> Ok None
+          | `Finalised stats -> Ok (Some stats)
         with exn -> catch_errors "Wait for GC" exn
 
-      let run ?(finished = fun _ -> Lwt.return_unit) repo commit_key =
-        let* started = start repo commit_key in
+      let run ?(finished = fun _ -> ()) repo commit_key =
+        let started = start repo commit_key in
         match started with
         | Ok r ->
             if r then
@@ -660,8 +661,8 @@ module Maker (Config : Conf.S) = struct
                   | Error err ->
                       let err_msg = map_errors "Finalise GC" err in
                       finished @@ Error err_msg);
-            Lwt.return_ok r
-        | Error _ as e -> Lwt.return e
+            Ok r
+        | Error _ as e -> e
 
       let is_allowed = X.Repo.Gc.is_allowed
       let cancel repo = X.Repo.Gc.cancel repo
@@ -709,12 +710,12 @@ module Maker (Config : Conf.S) = struct
           match root_key with
           | `Contents _ -> Fmt.failwith "[root_key] cannot be of type contents"
           | `Node key ->
-              let* total =
+              let total =
                 Export.run ?on_disk export f_contents f_nodes
                   (key, Pack_value.Kind.Inode_v2_root)
               in
               Export.close export |> Errs.raise_if_error;
-              Lwt.return total
+              total
       end
 
       let export = Export.iter
