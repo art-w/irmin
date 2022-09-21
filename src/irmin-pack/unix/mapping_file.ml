@@ -327,22 +327,34 @@ let calculate_extents_oc ~(src_is_sorted : unit) ~(src : int_bigarray)
   in
   dst_off
 
-let rev_calculate_extents_oc ~(src_is_revsorted : unit) ~(src : int_bigarray)
-    ~(register_entry : off:int -> len:int -> unit) : unit =
-  ignore src_is_revsorted;
+let rev_inplace (src : int_bigarray) : unit =
   let src_sz = BigArr1.dim src in
   let _ =
-    assert (src_sz >= 2);
-    assert (src_sz mod step_2 = 0);
-    ()
+    assert (src_sz >= 3);
+    assert (src_sz mod 3 = 0)
   in
-  let rec rev src_off =
-    if src_off >= 0 then (
-      let off, len = (src.{src_off}, src.{src_off + 1}) in
-      register_entry ~off ~len;
-      rev (src_off - 2))
+  let rec rev i j =
+    if i < j then (
+      let ioff, ilen = (src.{i}, src.{i + 2}) in
+      let joff, jlen = (src.{j}, src.{j + 2}) in
+      src.{i} <- joff;
+      src.{i + 2} <- jlen;
+      src.{j} <- ioff;
+      src.{j + 2} <- ilen;
+      rev (i + 3) (j - 3))
   in
-  rev (src_sz - 2)
+  rev 0 (src_sz - 3)
+
+let set_prefix_offsets src =
+  let src_sz = BigArr1.dim src in
+  let rec go i poff =
+    if i < src_sz then (
+      assert (poff >= 0);
+      src.{i + 1} <- poff;
+      let len = src.{i + 2} in
+      go (i + 3) (poff + len))
+  in
+  go 0 0
 
 module Make (Io : Io.S) = struct
   module Io = Io
@@ -460,38 +472,37 @@ module Make (Io : Io.S) = struct
     (* Open created map *)
     open_map ~root ~generation
 
-  let create_rev ?report_file_sizes ~root ~generation ~register_entries () =
+  let create_rev ~root ~generation ~register_entries =
     assert (generation > 0);
     let open Result_syntax in
-    let path0 = Irmin_pack.Layout.V3.reachable ~generation ~root in
-    let path2 = Irmin_pack.Layout.V3.mapping ~generation ~root in
+    let path = Irmin_pack.Layout.V3.mapping ~generation ~root in
 
     let* () =
       if Sys.word_size <> 64 then Error `Gc_forbidden_on_32bit_platforms
       else Ok ()
     in
 
-    (* Unlink the 3 files and ignore errors (typically no such file) *)
-    Io.unlink path0 |> ignore;
-    Io.unlink path2 |> ignore;
+    (* Unlink residual and ignore errors (typically no such file) *)
+    Io.unlink path |> ignore;
 
-    (* Create [file0] *)
-    let* file0 =
-      Ao.create_rw ~path:path0 ~overwrite:true ~auto_flush_threshold:1_000_000
+    (* Create [file] *)
+    let* file =
+      Ao.create_rw ~path ~overwrite:true ~auto_flush_threshold:1_000_000
         ~auto_flush_procedure:`Internal
     in
 
-    (* Fill and close [file0] *)
+    (* Fill and close [file] *)
     let append_entry ~off ~len =
-      (* Write [off, len] in native-endian encoding because it will be read
-         with mmap. *)
-      let buffer = Bytes.create 16 in
+      (* Write [off, 0, len] in native-endian encoding because it will be read
+         with mmap. The [0] reserves the space for the future prefix offset. *)
+      let buffer = Bytes.create 24 in
       Bytes.set_int64_ne buffer 0 (Int63.to_int64 off);
-      Bytes.set_int64_ne buffer 8 (Int64.of_int len);
+      Bytes.set_int64_ne buffer 8 Int64.zero;
+      Bytes.set_int64_ne buffer 16 (Int64.of_int len);
       (* Bytes.unsafe_to_string usage: buffer is uniquely owned; we assume
          Bytes.set_int64_ne returns unique ownership; we give up ownership of buffer in
          conversion to string. This is safe. *)
-      Ao.append_exn file0 (Bytes.unsafe_to_string buffer)
+      Ao.append_exn file (Bytes.unsafe_to_string buffer)
     in
     (* Check if we can collapse consecutive entries *)
     let current_entry = ref None in
@@ -518,49 +529,20 @@ module Make (Io : Io.S) = struct
           | None -> ()
           | Some (off, len) -> append_entry ~off ~len)
     in
-    let* () = Ao.flush file0 in
-    let* () = Ao.close file0 in
+    let* () = Ao.flush file in
+    let* () = Ao.close file in
 
-    (* Reopen [file0] but as an mmap *)
-    let file0 = Int_mmap.open_ro ~fn:path0 ~sz:(-1) in
-
-    (* Create [file2] *)
-    let* file2 =
-      Ao.create_rw ~path:path2 ~overwrite:true ~auto_flush_threshold:1_000_000
-        ~auto_flush_procedure:`Internal
-    in
-
-    (* Fill and close [file2] *)
-    let poff = ref 0 in
-    let encode i =
-      let buf = Bytes.create 8 in
-      Bytes.set_int64_le buf 0 (Int64.of_int i);
-      (* Bytes.unsafe_to_string is safe since [buf] will not be modified after
-         this function returns. We give up ownership. *)
-      Bytes.unsafe_to_string buf
-    in
-    let register_entry ~off ~len =
-      Ao.append_exn file2 (encode off);
-      Ao.append_exn file2 (encode !poff);
-      Ao.append_exn file2 (encode len);
-      poff := !poff + len
-    in
+    (* Reopen [file] but as an mmap *)
+    let file = Int_mmap.open_ro ~fn:path ~sz:(-1) in
     let* () =
       Errs.catch (fun () ->
-          rev_calculate_extents_oc ~src_is_revsorted:() ~src:file0.arr
-            ~register_entry)
+          rev_inplace file.arr;
+          set_prefix_offsets file.arr)
     in
 
-    (* Close and unlink [file0] *)
-    Int_mmap.close file0;
-    Io.unlink path0 |> ignore;
-
-    let* () = Ao.flush file2 in
-    let* () = Ao.fsync file2 in
-    let mapping_size = Ao.end_poff file2 in
-    let* () = Ao.close file2 in
-
-    Option.iter (fun f -> f mapping_size) report_file_sizes;
+    (* Flush and close new mapping [file] *)
+    let* () = Errs.catch (fun () -> Unix.fsync file.fd) in
+    Int_mmap.close file;
 
     (* Open created map *)
     open_map ~root ~generation
