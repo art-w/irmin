@@ -55,14 +55,14 @@ module type S = sig
       returns. *)
 
   val create_rev :
-    ?report_file_sizes:(int63 -> unit) ->
     root:string ->
     generation:int ->
     register_entries:(register_entry:(off:int63 -> len:int -> unit) -> unit) ->
-    unit ->
     (t, Errs.t) result
   (** Same as [create], but expects [register_entries] to produce live entries
-      in decreasing offset order. *)
+      in decreasing offset order.
+
+      This function does not create temporary files. *)
 
   val open_map : root:string -> generation:int -> (t, [> open_error ]) result
   (** [open_map ~root ~generation] opens a mapping file. *)
