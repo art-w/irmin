@@ -282,7 +282,7 @@ module Maker (Config : Conf.S) = struct
               t commit_key =
             match t.running_gc with
             | Some _ ->
-                [%log.info "Repo is alreadying running GC. Skipping."];
+                [%log.debug "GC is already running GC. Skipping."];
                 Lwt.return false
             | None -> (
                 let result =
