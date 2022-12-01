@@ -222,14 +222,16 @@ module Make (Args : Gc_args.S) = struct
          parents will have to be read in order to produce a key for them. *)
       stats :=
         Gc_stats.Worker.finish_current_step !stats "mapping: commits to sorted";
+      let register_entry ~off ~len =
+        stats := Gc_stats.Worker.incr_objects_traversed !stats;
+        register_entry ~off ~len
+      in
       let register_object_exn key =
         match Pack_key.inspect key with
+        | Direct { offset; length; _ } -> register_entry ~off:offset ~len:length
         | Indexed _ ->
             raise
               (Pack_error (`Commit_parent_key_is_indexed (string_of_key key)))
-        | Direct { offset; length; _ } ->
-            stats := Gc_stats.Worker.incr_objects_traversed !stats;
-            register_entry ~off:offset ~len:length
       in
 
       (* Step 3.3 Put the commit in the reachable file. *)

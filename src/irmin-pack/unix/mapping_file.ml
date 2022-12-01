@@ -71,6 +71,7 @@ module Int_mmap : sig
   (** NOTE [open_ro ~fn ~sz] can use [sz=-1] to open with size based on the size
       of the underlying file *)
 
+  val open_rw : fn:string -> sz:int -> t
   val close : t -> unit
 end = struct
   type t = { fn : string; fd : Unix.file_descr; mutable arr : int_bigarray }
@@ -99,6 +100,16 @@ end = struct
     let shared = false in
     assert (Sys.file_exists fn);
     let fd = Unix.(openfile fn [ O_RDONLY ] 0o660) in
+    let arr =
+      let open Bigarray in
+      Unix.map_file fd Int c_layout shared [| sz |] |> array1_of_genarray
+    in
+    { fn; fd; arr }
+
+  let open_rw ~fn ~sz =
+    let shared = true in
+    assert (Sys.file_exists fn);
+    let fd = Unix.(openfile fn [ O_RDWR ] 0o660) in
     let arr =
       let open Bigarray in
       Unix.map_file fd Int c_layout shared [| sz |] |> array1_of_genarray
@@ -533,7 +544,7 @@ module Make (Io : Io.S) = struct
     let* () = Ao.close file in
 
     (* Reopen [file] but as an mmap *)
-    let file = Int_mmap.open_ro ~fn:path ~sz:(-1) in
+    let file = Int_mmap.open_rw ~fn:path ~sz:(-1) in
     let* () =
       Errs.catch (fun () ->
           rev_inplace file.arr;
