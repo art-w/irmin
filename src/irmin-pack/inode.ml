@@ -2343,6 +2343,18 @@ struct
         let v = Val.of_raw find v in
         Some v
 
+  let unsafe_find_fast t k =
+    match Pack.unsafe_find_fast t k with
+    | None -> None
+    | Some v ->
+        let find ~expected_depth k =
+          let v = Pack.unsafe_find_fast t k in
+          check_depth_opt ~expected_depth v;
+          v
+        in
+        let v = Val.of_raw find v in
+        Some v
+
   let find t k = unsafe_find ~check_integrity:true t k |> Lwt.return
 
   let save ?allow_non_root t v =

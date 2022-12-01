@@ -78,9 +78,7 @@ module Make (Args : Gc_args.S) = struct
         (match key_opt with None -> () | Some key -> iter_node key);
         loop ())
     and iter_node node_key =
-      match
-        Node_store.unsafe_find ~check_integrity:false node_store node_key
-      with
+      match Node_store.unsafe_find_fast node_store node_key with
       | None -> raise (Pack_error (`Dangling_key (string_of_key node_key)))
       | Some node ->
           List.iter

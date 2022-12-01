@@ -35,4 +35,6 @@ module Closeable (CA : S) = struct
 
   let unsafe_find ~check_integrity t k =
     (get_if_open_exn t |> CA.unsafe_find ~check_integrity) k
+
+  let unsafe_find_fast t k = (get_if_open_exn t |> CA.unsafe_find_fast) k
 end

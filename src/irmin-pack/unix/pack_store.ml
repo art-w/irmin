@@ -366,6 +366,10 @@ struct
     Stats.report_pack_store ~field:!find_location;
     value_opt
 
+  let unsafe_find_fast t k =
+    [%log.debug "[pack] find %a" pp_key k];
+    find_in_pack_file t k
+
   let find t k =
     let v = unsafe_find ~check_integrity:true t k in
     Lwt.return v

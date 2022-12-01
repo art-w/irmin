@@ -55,9 +55,7 @@ module type S = sig
       dispatcher:Dispatcher.t ->
       read t
 
-    val unsafe_find :
-      check_integrity:bool -> [< read ] t -> key -> Node_value.t option
-
+    val unsafe_find_fast : [< read ] t -> key -> Node_value.t option
     val purge_lru : 'a t -> unit
   end
 
