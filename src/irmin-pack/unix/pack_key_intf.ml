@@ -72,7 +72,9 @@ module type Sigs = sig
   val inspect : 'hash t -> 'hash state
   val v_direct : hash:'h -> offset:int63 -> length:int -> 'h t
   val v_indexed : 'h -> 'h t
+  val v_lazy : offset:int63 -> 'h state Lazy.t -> 'h t
   val promote_exn : 'h t -> offset:int63 -> length:int -> unit
+  val get_offset : 'h t -> int63 option
 
   module type S = sig
     type hash

@@ -21,30 +21,42 @@ type 'hash state =
   | Direct of { hash : 'hash; offset : int63; length : int }
   | Indexed of 'hash
 
-type 'hash t = { mutable state : 'hash state }
+type 'hash lazy_state =
+  | State of 'hash state
+  | Lazy_offset of int63 * 'hash state Lazy.t
 
-let inspect t = t.state
-let to_hash t = match t.state with Direct t -> t.hash | Indexed h -> h
+type 'hash t = { mutable state : 'hash lazy_state }
+
+let get_offset t =
+  match t.state with
+  | Lazy_offset (off, _) -> Some off
+  | State (Direct { offset; _ }) -> Some offset
+  | _ -> None
+
+let inspect t =
+  match t.state with State s -> s | Lazy_offset (_, s) -> Lazy.force s
+
+let to_hash t = match inspect t with Direct t -> t.hash | Indexed h -> h
 
 let promote_exn t ~offset ~length =
   let () =
-    match t.state with
+    match inspect t with
     | Direct _ ->
         Fmt.failwith "Attempted to promote a key that is already Direct"
     | Indexed _ -> ()
   in
-  t.state <- Direct { hash = to_hash t; offset; length }
+  t.state <- State (Direct { hash = to_hash t; offset; length })
 
 let t : type h. h Irmin.Type.t -> h t Irmin.Type.t =
  fun hash_t ->
   let open Irmin.Type in
   variant "t" (fun direct indexed t ->
-      match t.state with
+      match inspect t with
       | Direct { hash; offset; length } -> direct (hash, offset, length)
       | Indexed x1 -> indexed x1)
   |~ case1 "Direct" [%typ: hash * int63 * int] (fun (hash, offset, length) ->
-         { state = Direct { hash; offset; length } })
-  |~ case1 "Indexed" [%typ: hash] (fun x1 -> { state = Indexed x1 })
+         { state = State (Direct { hash; offset; length }) })
+  |~ case1 "Indexed" [%typ: hash] (fun x1 -> { state = State (Indexed x1) })
   |> sealv
 
 let t (type hash) (hash_t : hash Irmin.Type.t) =
@@ -78,18 +90,22 @@ let t (type hash) (hash_t : hash Irmin.Type.t) =
   let encode_bin t f = Hash.encode_bin (to_hash t) f in
   let unboxed_encode_bin t f = Hash.unboxed_encode_bin (to_hash t) f in
   let decode_bin buf pos_ref =
-    { state = Indexed (Hash.decode_bin buf pos_ref) }
+    { state = State (Indexed (Hash.decode_bin buf pos_ref)) }
   in
   let unboxed_decode_bin buf pos_ref =
-    { state = Indexed (Hash.unboxed_decode_bin buf pos_ref) }
+    { state = State (Indexed (Hash.unboxed_decode_bin buf pos_ref)) }
   in
   let size_of = Irmin.Type.Size.custom_static Hash.encoded_size in
   Irmin.Type.like (t hash_t) ~pre_hash ~equal ~compare
     ~bin:(encode_bin, decode_bin, size_of)
     ~unboxed_bin:(unboxed_encode_bin, unboxed_decode_bin, size_of)
 
-let v_direct ~hash ~offset ~length = { state = Direct { hash; offset; length } }
-let v_indexed hash = { state = Indexed hash }
+let v_lazy ~offset fetch = { state = Lazy_offset (offset, fetch) }
+
+let v_direct ~hash ~offset ~length =
+  { state = State (Direct { hash; offset; length }) }
+
+let v_indexed hash = { state = State (Indexed hash) }
 
 module type S = sig
   type hash
