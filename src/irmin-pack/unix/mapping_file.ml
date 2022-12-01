@@ -483,7 +483,7 @@ module Make (Io : Io.S) = struct
     (* Open created map *)
     open_map ~root ~generation
 
-  let create_rev ~root ~generation ~register_entries =
+  let create_rev ?report_mapping_size ~root ~generation ~register_entries () =
     assert (generation > 0);
     let open Result_syntax in
     let path = Irmin_pack.Layout.V3.mapping ~generation ~root in
@@ -554,6 +554,9 @@ module Make (Io : Io.S) = struct
     (* Flush and close new mapping [file] *)
     let* () = Errs.catch (fun () -> Unix.fsync file.fd) in
     Int_mmap.close file;
+
+    let* mapping_size = Io.size_of_path path in
+    Option.iter (fun f -> f mapping_size) report_mapping_size;
 
     (* Open created map *)
     open_map ~root ~generation

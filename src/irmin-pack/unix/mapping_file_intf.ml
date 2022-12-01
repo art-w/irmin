@@ -55,9 +55,11 @@ module type S = sig
       returns. *)
 
   val create_rev :
+    ?report_mapping_size:(int63 -> unit) ->
     root:string ->
     generation:int ->
     register_entries:(register_entry:(off:int63 -> len:int -> unit) -> unit) ->
+    unit ->
     (t, Errs.t) result
   (** Same as [create], but expects [register_entries] to produce live entries
       in decreasing offset order.

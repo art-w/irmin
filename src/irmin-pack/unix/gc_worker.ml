@@ -212,8 +212,11 @@ module Make (Args : Gc_args.S) = struct
          reachable file. *)
       stats := Gc_stats.Worker.finish_current_step !stats "mapping: start";
       (fun f ->
-        Mapping_file.create_rev ~root:new_files_path ~generation
-          ~register_entries:f
+        let report_mapping_size size =
+          stats := Gc_stats.Worker.add_file_size !stats "mapping" size
+        in
+        Mapping_file.create_rev ~report_mapping_size ~root:new_files_path
+          ~generation ~register_entries:f ()
         |> Errs.raise_if_error)
       @@ fun ~register_entry ->
       (* Step 3.2 Put the commit parents in the reachable file.
