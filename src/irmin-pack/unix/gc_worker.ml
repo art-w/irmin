@@ -73,9 +73,18 @@ module Make (Args : Gc_args.S) = struct
     let todos = Priority_queue.create 1024 in
     let rec loop () =
       if not (Priority_queue.is_empty todos) then (
-        let offset, (length, key_opt) = Priority_queue.pop todos in
+        let offset, kinded_key = Priority_queue.pop todos in
+        let key = match kinded_key with Error key -> key | Ok key -> key in
+        let length =
+          match Pack_key.inspect key with
+          | Direct { length; _ } -> length
+          | Indexed _ ->
+              raise
+                (Pack_error
+                   (`Node_or_contents_key_is_indexed (string_of_key key)))
+        in
         f ~off:offset ~len:length;
-        (match key_opt with None -> () | Some key -> iter_node key);
+        (match kinded_key with Error _ -> () | Ok key -> iter_node key);
         loop ())
     and iter_node node_key =
       match Node_store.unsafe_find_fast node_store node_key with
@@ -87,29 +96,31 @@ module Make (Args : Gc_args.S) = struct
     and schedule_kinded kinded_key =
       let key, key_opt =
         match kinded_key with
-        | `Contents key -> (key, None)
-        | `Inode key | `Node key -> (key, Some key)
+        | `Contents key -> (key, Error key)
+        | `Inode key | `Node key -> (key, Ok key)
       in
-      let offset, length =
-        match Pack_key.inspect key with
-        | Indexed _ ->
+      let offset =
+        match Pack_key.get_offset key with
+        | Some offset -> offset
+        | None ->
             raise
               (Pack_error (`Node_or_contents_key_is_indexed (string_of_key key)))
-        | Direct { offset; length; _ } -> (offset, length)
       in
-      schedule offset length key_opt
-    and schedule offset length key_opt =
-      Priority_queue.add todos offset (length, key_opt)
-    in
+      schedule offset key_opt
+    and schedule offset key = Priority_queue.add todos offset key in
     (* Include the commit parents in the reachable file.
        The parent(s) of [commit] must be included in the iteration
        because, when decoding the [Commit_value.t] at [commit], the
        parents will have to be read in order to produce a key for them. *)
     let schedule_parent_exn key =
-      match Pack_key.inspect key with
-      | Indexed _ ->
-          raise (Pack_error (`Commit_parent_key_is_indexed (string_of_key key)))
-      | Direct { offset; length; _ } -> schedule offset length None
+      let offset =
+        match Pack_key.get_offset key with
+        | Some offset -> offset
+        | None ->
+            raise
+              (Pack_error (`Commit_parent_key_is_indexed (string_of_key key)))
+      in
+      schedule offset (Error key)
     in
     List.iter schedule_parent_exn (Commit_value.parents commit);
     schedule_kinded (`Node (Commit_value.node commit));
