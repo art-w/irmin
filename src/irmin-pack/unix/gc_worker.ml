@@ -47,30 +47,85 @@ module Make (Args : Gc_args.S) = struct
     module Table = Hashtbl.Make (Offset_rev)
     module Pq = Binary_heap.Make (Offset_rev)
 
-    type 'a t = { pq : Pq.t; marks : 'a Table.t }
+    type 'a t = {
+      mutable pq : Pq.t list;
+      left_marks : 'a Table.t;
+      right_marks : 'a Table.t;
+    }
 
-    let create size =
-      { pq = Pq.create ~dummy:Int63.zero size; marks = Table.create size }
+    let dummy = Int63.zero
+    (* let bleh = Pq.create ~dummy:Int63.zero size; *)
 
-    let is_empty t = Pq.is_empty t.pq
+    let create () =
+      {
+        pq = [];
+        left_marks = Table.create 1024;
+        right_marks = Table.create 1024;
+      }
 
-    let pop { pq; marks } =
-      let elt = Pq.pop_minimum pq in
-      let payload = Table.find marks elt in
-      Table.remove marks elt;
+    let is_empty t = t.pq = [] (* Pq.is_empty t.pq *)
+
+    let do_pop t =
+      match t.pq with
+      | [] -> assert false
+      | pq :: pqs ->
+          let elt = Pq.pop_minimum pq in
+          if Pq.is_empty pq then t.pq <- pqs;
+          elt
+
+    let pop t =
+      let elt = do_pop t in
+      let payload =
+        match Table.find_opt t.right_marks elt with
+        | None ->
+            let payload = Table.find t.left_marks elt in
+            Table.remove t.left_marks elt;
+            Error payload
+        | Some payload ->
+            Table.remove t.right_marks elt;
+            Ok payload
+      in
       (elt, payload)
 
-    let add { pq; marks } elt payload =
-      if not (Table.mem marks elt) then (
-        Table.add marks elt payload;
-        Pq.add pq elt)
+    let do_add t elt =
+      match t.pq with
+      | [] ->
+          let pq = Pq.create ~dummy 1 in
+          Pq.add pq elt;
+          t.pq <- [ pq ]
+      | pq :: pqs -> (
+          match Offset_rev.compare elt (Pq.minimum pq) with
+          | 0 -> assert false
+          | c when c < 0 ->
+              let pq' = Pq.create ~dummy 1 in
+              Pq.add pq' elt;
+              t.pq <- pq' :: pq :: pqs
+          | _ ->
+              let rec go pq pqs =
+                match pqs with
+                | [] -> Pq.add pq elt
+                | pq' :: _ when Offset_rev.compare elt (Pq.minimum pq') <= 0 ->
+                    Pq.add pq elt
+                | pq' :: pqs -> go pq' pqs
+              in
+              go pq pqs)
+
+    let add t elt payload =
+      match payload with
+      | Error payload when not (Table.mem t.left_marks elt) ->
+          Table.add t.left_marks elt payload;
+          do_add t elt
+      | Ok payload when not (Table.mem t.right_marks elt) ->
+          Table.add t.right_marks elt payload;
+          do_add t elt
+      | _ -> ()
   end
 
   (** [iter_reachable commit _ ~f] calls [f ~off ~len] once for each [offset]
       and [length] of the reachable tree objects and immediate parent commits
       from [commit]. *)
   let iter_reachable commit node_store ~f =
-    let todos = Priority_queue.create 1024 in
+    let todos = Priority_queue.create () in
     let rec loop () =
       if not (Priority_queue.is_empty todos) then (
         let offset, kinded_key = Priority_queue.pop todos in
