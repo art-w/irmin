@@ -87,9 +87,9 @@ struct
     | Direct { length; _ } -> length
 
   let off_of_direct_key k =
-    match Pack_key.inspect k with
-    | Indexed _ -> assert false
-    | Direct { offset; _ } -> offset
+    match Pack_key.get_offset k with
+    | None -> assert false
+    | Some offset -> offset
 
   let index_direct_with_kind t hash =
     [%log.debug "index %a" pp_hash hash];
@@ -229,15 +229,15 @@ struct
 
   let unsafe_mem t k =
     [%log.debug "[pack] mem %a" pp_key k];
-    match Pack_key.inspect k with
-    | Indexed hash ->
-        (* The key doesn't contain an offset, let's skip the lookup in [lru] and
-           go straight to disk read. *)
+    match Pack_key.get_offset k with
+    | Some offset when Lru.mem t.lru offset -> true
+    | _ ->
+        let hash =
+          match Pack_key.inspect k with
+          | Indexed hash -> hash
+          | Direct { hash; _ } -> hash
+        in
         Tbl.mem t.staging hash || pack_file_contains_key t k
-    | Direct { offset; hash; _ } ->
-        Tbl.mem t.staging hash
-        || Lru.mem t.lru offset
-        || pack_file_contains_key t k
 
   let mem t k =
     let b = unsafe_mem t k in
@@ -275,6 +275,9 @@ struct
            avoids doing another failed check in the pack file for the length
            header during [find]. *)
         Pack_key.v_indexed entry_prefix.hash
+
+  let key_of_offset t offset =
+    Pack_key.v_lazy ~offset (lazy (Pack_key.inspect (key_of_offset t offset)))
 
   let find_in_pack_file t key =
     match accessor_of_key t key with
@@ -362,6 +365,10 @@ struct
     in
     Stats.report_pack_store ~field:!find_location;
     value_opt
+
+  let unsafe_find_fast t k =
+    [%log.debug "[pack] find %a" pp_key k];
+    find_in_pack_file t k
 
   let find t k =
     let v = unsafe_find ~check_integrity:true t k in

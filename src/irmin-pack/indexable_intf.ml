@@ -32,6 +32,7 @@ module type S = sig
 
   val unsafe_mem : 'a t -> key -> bool
   val unsafe_find : check_integrity:bool -> 'a t -> key -> value option
+  val unsafe_find_fast : 'a t -> key -> value option
 end
 
 module type Maker = sig

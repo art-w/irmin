@@ -86,6 +86,7 @@ module type S = sig
   module Hash : Irmin.Hash.S with type t = hash
 
   val unsafe_find : check_integrity:bool -> [< read ] t -> key -> value option
+  val unsafe_find_fast : [< read ] t -> key -> value option
 
   module Val :
     Value

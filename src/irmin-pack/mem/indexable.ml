@@ -108,6 +108,8 @@ module Maker (K : Irmin.Hash.S) = struct
           Fmt.invalid_arg "corrupted value: got %a, expecting %a" pp_hash k'
             pp_hash k
 
+    let unsafe_find_fast t k = unsafe_find ~check_integrity:false t k
+
     let find t k =
       [%log.debug "find %a" pp_hash k];
       find t k |> function

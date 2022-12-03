@@ -71,6 +71,7 @@ module Int_mmap : sig
   (** NOTE [open_ro ~fn ~sz] can use [sz=-1] to open with size based on the size
       of the underlying file *)
 
+  val open_rw : fn:string -> sz:int -> t
   val close : t -> unit
 end = struct
   type t = { fn : string; fd : Unix.file_descr; mutable arr : int_bigarray }
@@ -99,6 +100,16 @@ end = struct
     let shared = false in
     assert (Sys.file_exists fn);
     let fd = Unix.(openfile fn [ O_RDONLY ] 0o660) in
+    let arr =
+      let open Bigarray in
+      Unix.map_file fd Int c_layout shared [| sz |] |> array1_of_genarray
+    in
+    { fn; fd; arr }
+
+  let open_rw ~fn ~sz =
+    let shared = true in
+    assert (Sys.file_exists fn);
+    let fd = Unix.(openfile fn [ O_RDWR ] 0o660) in
     let arr =
       let open Bigarray in
       Unix.map_file fd Int c_layout shared [| sz |] |> array1_of_genarray
@@ -327,6 +338,35 @@ let calculate_extents_oc ~(src_is_sorted : unit) ~(src : int_bigarray)
   in
   dst_off
 
+let rev_inplace (src : int_bigarray) : unit =
+  let src_sz = BigArr1.dim src in
+  let _ =
+    assert (src_sz >= 3);
+    assert (src_sz mod 3 = 0)
+  in
+  let rec rev i j =
+    if i < j then (
+      let ioff, ilen = (src.{i}, src.{i + 2}) in
+      let joff, jlen = (src.{j}, src.{j + 2}) in
+      src.{i} <- joff;
+      src.{i + 2} <- jlen;
+      src.{j} <- ioff;
+      src.{j + 2} <- ilen;
+      rev (i + 3) (j - 3))
+  in
+  rev 0 (src_sz - 3)
+
+let set_prefix_offsets src =
+  let src_sz = BigArr1.dim src in
+  let rec go i poff =
+    if i < src_sz then (
+      assert (poff >= 0);
+      src.{i + 1} <- poff;
+      let len = src.{i + 2} in
+      go (i + 3) (poff + len))
+  in
+  go 0 0
+
 module Make (Io : Io.S) = struct
   module Io = Io
   module Errs = Io_errors.Make (Io)
@@ -439,6 +479,84 @@ module Make (Io : Io.S) = struct
       (fun f -> f (reachable_size, sorted_size, mapping_size))
       report_file_sizes;
     Io.unlink path1 |> ignore;
+
+    (* Open created map *)
+    open_map ~root ~generation
+
+  let create_rev ?report_mapping_size ~root ~generation ~register_entries () =
+    assert (generation > 0);
+    let open Result_syntax in
+    let path = Irmin_pack.Layout.V3.mapping ~generation ~root in
+
+    let* () =
+      if Sys.word_size <> 64 then Error `Gc_forbidden_on_32bit_platforms
+      else Ok ()
+    in
+
+    (* Unlink residual and ignore errors (typically no such file) *)
+    Io.unlink path |> ignore;
+
+    (* Create [file] *)
+    let* file =
+      Ao.create_rw ~path ~overwrite:true ~auto_flush_threshold:1_000_000
+        ~auto_flush_procedure:`Internal
+    in
+
+    (* Fill and close [file] *)
+    let append_entry ~off ~len =
+      (* Write [off, 0, len] in native-endian encoding because it will be read
+         with mmap. The [0] reserves the space for the future prefix offset. *)
+      let buffer = Bytes.create 24 in
+      Bytes.set_int64_ne buffer 0 (Int63.to_int64 off);
+      Bytes.set_int64_ne buffer 8 Int64.zero;
+      Bytes.set_int64_ne buffer 16 (Int64.of_int len);
+      (* Bytes.unsafe_to_string usage: buffer is uniquely owned; we assume
+         Bytes.set_int64_ne returns unique ownership; we give up ownership of buffer in
+         conversion to string. This is safe. *)
+      Ao.append_exn file (Bytes.unsafe_to_string buffer)
+    in
+    (* Check if we can collapse consecutive entries *)
+    let current_entry = ref None in
+    let register_entry ~off ~len =
+      let current =
+        match !current_entry with
+        | None -> (off, len)
+        | Some (off', len') ->
+            if off >= off' then
+              invalid_arg "register_entry: offsets are not strictly decreasing";
+            let dist = Int63.to_int (Int63.sub off' off) in
+            if dist <= len + gap_tolerance then (off, dist + len')
+            else (
+              append_entry ~off:off' ~len:len';
+              (off, len))
+      in
+      current_entry := Some current
+    in
+    let* () =
+      Errs.catch (fun () ->
+          register_entries ~register_entry;
+          (* Flush pending entry *)
+          match !current_entry with
+          | None -> ()
+          | Some (off, len) -> append_entry ~off ~len)
+    in
+    let* () = Ao.flush file in
+    let* () = Ao.close file in
+
+    (* Reopen [file] but as an mmap *)
+    let file = Int_mmap.open_rw ~fn:path ~sz:(-1) in
+    let* () =
+      Errs.catch (fun () ->
+          rev_inplace file.arr;
+          set_prefix_offsets file.arr)
+    in
+
+    (* Flush and close new mapping [file] *)
+    let* () = Errs.catch (fun () -> Unix.fsync file.fd) in
+    Int_mmap.close file;
+
+    let* mapping_size = Io.size_of_path path in
+    Option.iter (fun f -> f mapping_size) report_mapping_size;
 
     (* Open created map *)
     open_map ~root ~generation
