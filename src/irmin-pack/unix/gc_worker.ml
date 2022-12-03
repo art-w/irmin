@@ -258,6 +258,9 @@ module Make (Args : Gc_args.S) = struct
     let node_store = Node_store.v ~config ~fm ~dict ~dispatcher in
     let commit_store = Commit_store.v ~config ~fm ~dict ~dispatcher in
 
+    Node_store.purge_lru node_store;
+    Commit_store.purge_lru commit_store;
+
     (* Step 2. Load commit which will make [commit_key] [Direct] if it's not
        already the case. *)
     stats := Gc_stats.Worker.finish_current_step !stats "load commit";
