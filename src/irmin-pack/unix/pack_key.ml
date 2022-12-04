@@ -21,20 +21,21 @@ type 'hash state =
   | Direct of { hash : 'hash; offset : int63; length : int }
   | Indexed of 'hash
 
-type 'hash lazy_state =
-  | State of 'hash state
-  | Lazy_offset of int63 * 'hash state Lazy.t
-
+type 'hash lazy_state = State of 'hash state | Lazy_offset of int63
 type 'hash t = { mutable state : 'hash lazy_state }
 
 let get_offset t =
   match t.state with
-  | Lazy_offset (off, _) -> Some off
+  | Lazy_offset off -> Some off
   | State (Direct { offset; _ }) -> Some offset
   | _ -> None
 
+let expand fn t = match t.state with Lazy_offset off -> fn off | State _ -> t
+
 let inspect t =
-  match t.state with State s -> s | Lazy_offset (_, s) -> Lazy.force s
+  match t.state with
+  | State s -> s
+  | _ -> failwith "inspect lazy offset" (* Lazy_offset (_, s) -> Lazy.force s *)
 
 let to_hash t = match inspect t with Direct t -> t.hash | Indexed h -> h
 
@@ -100,7 +101,7 @@ let t (type hash) (hash_t : hash Irmin.Type.t) =
     ~bin:(encode_bin, decode_bin, size_of)
     ~unboxed_bin:(unboxed_encode_bin, unboxed_decode_bin, size_of)
 
-let v_lazy ~offset fetch = { state = Lazy_offset (offset, fetch) }
+let v_lazy ~offset = { state = Lazy_offset offset }
 
 let v_direct ~hash ~offset ~length =
   { state = State (Direct { hash; offset; length }) }

@@ -76,14 +76,14 @@ module Make (Args : Gc_args.S) = struct
     let pop t =
       let elt = do_pop t in
       let payload =
-        match Table.find_opt t.right_marks elt with
-        | None ->
-            let payload = Table.find t.left_marks elt in
+        match Table.mem t.right_marks elt with
+        | false ->
+            (* let () = Table.find t.left_marks elt in *)
             Table.remove t.left_marks elt;
-            Error payload
-        | Some payload ->
+            false
+        | true ->
             Table.remove t.right_marks elt;
-            Ok payload
+            true
       in
       (elt, payload)
 
@@ -112,11 +112,11 @@ module Make (Args : Gc_args.S) = struct
 
     let add t elt payload =
       match payload with
-      | Error payload when not (Table.mem t.left_marks elt) ->
-          Table.add t.left_marks elt payload;
+      | false when not (Table.mem t.left_marks elt) ->
+          Table.add t.left_marks elt ();
           do_add t elt
-      | Ok payload when not (Table.mem t.right_marks elt) ->
-          Table.add t.right_marks elt payload;
+      | true when not (Table.mem t.right_marks elt) ->
+          Table.add t.right_marks elt ();
           do_add t elt
       | _ -> ()
   end
@@ -128,8 +128,8 @@ module Make (Args : Gc_args.S) = struct
     let todos = Priority_queue.create () in
     let rec loop () =
       if not (Priority_queue.is_empty todos) then (
-        let offset, kinded_key = Priority_queue.pop todos in
-        let key = match kinded_key with Error key -> key | Ok key -> key in
+        let offset, has_children = Priority_queue.pop todos in
+        let key = Node_store.real_key_of_offset node_store offset in
         let length =
           match Pack_key.inspect key with
           | Direct { length; _ } -> length
@@ -139,7 +139,7 @@ module Make (Args : Gc_args.S) = struct
                    (`Node_or_contents_key_is_indexed (string_of_key key)))
         in
         f ~off:offset ~len:length;
-        (match kinded_key with Error _ -> () | Ok key -> iter_node key);
+        if has_children then iter_node key;
         loop ())
     and iter_node node_key =
       match Node_store.unsafe_find_fast node_store node_key with
@@ -149,10 +149,10 @@ module Make (Args : Gc_args.S) = struct
             (fun (_step, kinded_key) -> schedule_kinded kinded_key)
             (Node_value.pred node)
     and schedule_kinded kinded_key =
-      let key, key_opt =
+      let key, has_children =
         match kinded_key with
-        | `Contents key -> (key, Error key)
-        | `Inode key | `Node key -> (key, Ok key)
+        | `Contents key -> (key, false)
+        | `Inode key | `Node key -> (key, true)
       in
       let offset =
         match Pack_key.get_offset key with
@@ -161,8 +161,10 @@ module Make (Args : Gc_args.S) = struct
             raise
               (Pack_error (`Node_or_contents_key_is_indexed (string_of_key key)))
       in
-      schedule offset key_opt
-    and schedule offset key = Priority_queue.add todos offset key in
+      schedule offset has_children
+    and schedule offset has_children =
+      Priority_queue.add todos offset has_children
+    in
     (* Include the commit parents in the reachable file.
        The parent(s) of [commit] must be included in the iteration
        because, when decoding the [Commit_value.t] at [commit], the
@@ -175,7 +177,7 @@ module Make (Args : Gc_args.S) = struct
             raise
               (Pack_error (`Commit_parent_key_is_indexed (string_of_key key)))
       in
-      schedule offset (Error key)
+      schedule offset false
     in
     List.iter schedule_parent_exn (Commit_value.parents commit);
     schedule_kinded (`Node (Commit_value.node commit));
@@ -459,9 +461,20 @@ module Make (Args : Gc_args.S) = struct
   let run_and_output_result ~generation ~new_files_path root commit_key
       new_suffix_start_offset =
     let result =
-      Errs.catch (fun () ->
-          run ~generation ~new_files_path root commit_key
-            new_suffix_start_offset)
+      try
+        (* Printexc.record_backtrace true; *)
+        Errs.catch (fun () ->
+            run ~generation ~new_files_path root commit_key
+              new_suffix_start_offset)
+      with e ->
+        Format.fprintf Format.err_formatter "@.@.gc error: %s.@."
+          (Printexc.to_string e);
+        Printf.fprintf stderr "<<<\n%!";
+        Printexc.print_backtrace stderr;
+        Printf.fprintf stderr ">>>\n%!";
+        Stdlib.flush stderr;
+        Format.printf "backtrace above?@.@.@.";
+        raise e
     in
     let write_result = write_gc_output ~root ~generation result in
     write_result |> Errs.log_if_error "writing gc output"

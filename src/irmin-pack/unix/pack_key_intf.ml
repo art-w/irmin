@@ -70,9 +70,10 @@ module type Sigs = sig
         repository may not be dereferenced with respect to another by design. *)
 
   val inspect : 'hash t -> 'hash state
+  val expand : (int63 -> 'hash t) -> 'hash t -> 'hash t
   val v_direct : hash:'h -> offset:int63 -> length:int -> 'h t
   val v_indexed : 'h -> 'h t
-  val v_lazy : offset:int63 -> 'h state Lazy.t -> 'h t
+  val v_lazy : offset:int63 -> 'h t
   val promote_exn : 'h t -> offset:int63 -> length:int -> unit
   val get_offset : 'h t -> int63 option
 

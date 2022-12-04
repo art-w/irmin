@@ -276,10 +276,14 @@ struct
            header during [find]. *)
         Pack_key.v_indexed entry_prefix.hash
 
-  let key_of_offset t offset =
-    Pack_key.v_lazy ~offset (lazy (Pack_key.inspect (key_of_offset t offset)))
+  let real_key_of_offset = key_of_offset
 
-  let find_in_pack_file t key =
+  let lazy_key_of_offset _t offset =
+    Pack_key.v_lazy
+      ~offset (* (lazy (Pack_key.inspect (key_of_offset t offset))) *)
+
+  let find_in_pack_file ~key_of_offset t key =
+    let key = Pack_key.expand (real_key_of_offset t) key in
     match accessor_of_key t key with
     | exception Dangling_hash -> None
     | exception Errors.Pack_error `Read_out_of_bounds -> (
@@ -325,7 +329,7 @@ struct
     [%log.debug "[pack] find %a" pp_key k];
     let find_location = ref Stats.Pack_store.Not_found in
     let find_in_pack_file_guarded ~is_indexed =
-      let res = find_in_pack_file t k in
+      let res = find_in_pack_file ~key_of_offset t k in
       Option.iter
         (fun v ->
           if is_indexed then find_location := Stats.Pack_store.Pack_indexed
@@ -368,7 +372,7 @@ struct
 
   let unsafe_find_fast t k =
     [%log.debug "[pack] find %a" pp_key k];
-    find_in_pack_file t k
+    find_in_pack_file ~key_of_offset:lazy_key_of_offset t k
 
   let find t k =
     let v = unsafe_find ~check_integrity:true t k in
@@ -377,7 +381,7 @@ struct
   let integrity_check ~offset ~length hash t =
     let k = Pack_key.v_direct ~hash ~offset ~length in
     (* TODO: new error for reading gced objects. *)
-    match find_in_pack_file t k with
+    match find_in_pack_file ~key_of_offset t k with
     | exception Errors.Pack_error (`Invalid_prefix_read _) ->
         Error `Absent_value
     | exception Invalid_read _ -> Error `Absent_value
@@ -516,4 +520,7 @@ struct
     Inner.index_direct_with_kind (get_if_open_exn t)
 
   let purge_lru t = Inner.purge_lru (get_if_open_exn t)
+
+  let real_key_of_offset t off =
+    Inner.real_key_of_offset (get_if_open_exn t) off
 end

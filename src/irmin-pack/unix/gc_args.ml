@@ -57,6 +57,7 @@ module type S = sig
 
     val unsafe_find_fast : [< read ] t -> key -> Node_value.t option
     val purge_lru : 'a t -> unit
+    val real_key_of_offset : 'a t -> int63 -> key
   end
 
   module Commit_value : sig
