@@ -58,6 +58,7 @@ module type Persistent = sig
   val of_snapshot : 'a t -> index:(hash -> key) -> Snapshot.inode -> value
   val purge_lru : 'a t -> unit
   val key_of_offset : 'a t -> int63 -> key
+  val unsafe_find_by_offset : 'a t -> int63 -> value option
 end
 
 module type Sigs = sig

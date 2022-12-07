@@ -47,6 +47,9 @@ module type Sigs = sig
 
             Such keys result from decoding pointers to other store objects
             (nodes or commits) from commits or from the branch store. *)
+    | Offset of int63
+        (** Same as [Direct], but the hash and length of the object have not
+            been fetched. Only used to speed up the GC traversal. *)
 
   (** {2 Undereferencable keys}
 
@@ -72,7 +75,10 @@ module type Sigs = sig
   val inspect : 'hash t -> 'hash state
   val v_direct : hash:'h -> offset:int63 -> length:int -> 'h t
   val v_indexed : 'h -> 'h t
+  val v_offset : int63 -> 'h t
   val promote_exn : 'h t -> offset:int63 -> length:int -> unit
+  val to_hash : 'hash t -> 'hash
+  val to_offset : 'h t -> int63
 
   module type S = sig
     type hash

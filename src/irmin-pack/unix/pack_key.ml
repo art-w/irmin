@@ -20,17 +20,30 @@ include Pack_key_intf
 type 'hash state =
   | Direct of { hash : 'hash; offset : int63; length : int }
   | Indexed of 'hash
+  | Offset of int63
 
 type 'hash t = { mutable state : 'hash state }
 
 let inspect t = t.state
-let to_hash t = match t.state with Direct t -> t.hash | Indexed h -> h
+
+let to_hash t =
+  match t.state with
+  | Direct t -> t.hash
+  | Indexed h -> h
+  | Offset _ -> Fmt.failwith "Hash unavailable"
+
+let to_offset t =
+  match t.state with
+  | Direct t -> t.offset
+  | Offset offset -> offset
+  | Indexed _ -> Fmt.failwith "Offset unavailable"
 
 let promote_exn t ~offset ~length =
   let () =
     match t.state with
     | Direct _ ->
         Fmt.failwith "Attempted to promote a key that is already Direct"
+    | Offset _ -> Fmt.failwith "Attempted to promote an offset without hash"
     | Indexed _ -> ()
   in
   t.state <- Direct { hash = to_hash t; offset; length }
@@ -41,7 +54,8 @@ let t : type h. h Irmin.Type.t -> h t Irmin.Type.t =
   variant "t" (fun direct indexed t ->
       match t.state with
       | Direct { hash; offset; length } -> direct (hash, offset, length)
-      | Indexed x1 -> indexed x1)
+      | Indexed x1 -> indexed x1
+      | Offset _ -> assert false)
   |~ case1 "Direct" [%typ: hash * int63 * int] (fun (hash, offset, length) ->
          { state = Direct { hash; offset; length } })
   |~ case1 "Indexed" [%typ: hash] (fun x1 -> { state = Indexed x1 })
@@ -90,6 +104,7 @@ let t (type hash) (hash_t : hash Irmin.Type.t) =
 
 let v_direct ~hash ~offset ~length = { state = Direct { hash; offset; length } }
 let v_indexed hash = { state = Indexed hash }
+let v_offset offset = { state = Offset offset }
 
 module type S = sig
   type hash

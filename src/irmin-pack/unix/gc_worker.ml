@@ -81,12 +81,10 @@ module Make (Args : Gc_args.S) = struct
           | Indexed _ -> assert false
         in
         f ~off:offset ~len:length;
-        if has_children then iter_node node_key;
+        if has_children then iter_node node_key offset;
         loop ())
-    and iter_node node_key =
-      match
-        Node_store.unsafe_find ~check_integrity:false node_store node_key
-      with
+    and iter_node node_key offset =
+      match Node_store.unsafe_find_by_offset node_store offset with
       | None -> raise (Pack_error (`Dangling_key (string_of_key node_key)))
       | Some node ->
           List.iter
@@ -100,10 +98,10 @@ module Make (Args : Gc_args.S) = struct
       in
       let offset =
         match Pack_key.inspect key with
+        | Direct { offset; _ } | Offset offset -> offset
         | Indexed _ ->
             raise
               (Pack_error (`Node_or_contents_key_is_indexed (string_of_key key)))
-        | Direct { offset; _ } -> offset
       in
       schedule offset has_children
     and schedule offset has_children =
@@ -117,8 +115,9 @@ module Make (Args : Gc_args.S) = struct
       match Pack_key.inspect key with
       | Indexed _ ->
           raise (Pack_error (`Commit_parent_key_is_indexed (string_of_key key)))
-      | Direct { offset; _ } -> schedule offset false
+      | Direct { offset; _ } | Offset offset -> schedule offset false
     in
+
     List.iter schedule_parent_exn (Commit_value.parents commit);
     schedule_kinded (`Node (Commit_value.node commit));
     loop ()

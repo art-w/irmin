@@ -57,4 +57,15 @@ struct
   let integrity_check = Pack.integrity_check
   let purge_lru = Pack.purge_lru
   let key_of_offset = Pack.key_of_offset
+
+  let unsafe_find_by_offset t offset =
+    match Pack.unsafe_find_by_offset t offset with
+    | None -> None
+    | Some v ->
+        let find ~expected_depth:_ k =
+          (* dead code *)
+          Pack.unsafe_find ~check_integrity:false t k
+        in
+        let v = Inter.Val.of_raw find v in
+        Some v
 end
