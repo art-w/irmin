@@ -37,6 +37,7 @@
     only. (#2190, @art-w, @Firobe)
   - Upgrade on-disk format to version 5. (#2184, @metanivek)
   - Archive to lower volume does not copy orphaned commits. (#2215, @art-w)
+  - Removed dict/suffix `flush_threshold` configuration. (#2235, @art-w)
 
 ### Fixed
 - **irmin-pack**
