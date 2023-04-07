@@ -46,12 +46,11 @@ struct
   module Io = Irmin_pack_unix.Io.Unix
   module Errs = Irmin_pack_unix.Io_errors.Make (Io)
   module File_manager = Irmin_pack_unix.File_manager.Make (Io) (Index) (Errs)
-  module Dict = Irmin_pack_unix.Dict.Make (File_manager)
+  module Dict = File_manager.Dict
   module Dispatcher = Irmin_pack_unix.Dispatcher.Make (File_manager)
 
   module Pack =
-    Irmin_pack_unix.Pack_store.Make (File_manager) (Dict) (Dispatcher)
-      (Schema.Hash)
+    Irmin_pack_unix.Pack_store.Make (File_manager) (Dispatcher) (Schema.Hash)
       (Inter.Raw)
       (Errs)
 
@@ -63,8 +62,7 @@ struct
       (Schema.Contents)
 
   module Contents_store =
-    Irmin_pack_unix.Pack_store.Make (File_manager) (Dict) (Dispatcher)
-      (Schema.Hash)
+    Irmin_pack_unix.Pack_store.Make (File_manager) (Dispatcher) (Schema.Hash)
       (Contents_value)
       (Errs)
 
@@ -114,7 +112,7 @@ struct
       rm_dir root;
       let config = config ~indexing_strategy ~readonly:false ~fresh:true root in
       let fm = get_fm config in
-      let dict = Dict.v fm |> Errs.raise_if_error in
+      let dict = File_manager.dict fm in
       let dispatcher = Dispatcher.v fm |> Errs.raise_if_error in
       let store = Inode.v ~config ~fm ~dict ~dispatcher in
       let store_contents = Contents_store.v ~config ~fm ~dict ~dispatcher in

@@ -28,8 +28,9 @@ struct
   module Io = Errs.Io
   module Index = Index
   module Errs = Io_errors.Make (Io)
+  module Ao = Append_only_file.Make (Io) (Errs)
   module Control = Control_file.Upper (Io)
-  module Dict = Append_only_file.Make (Io) (Errs)
+  module Dict = Dict.Make (Io)
   module Suffix = Chunked_suffix.Make (Io) (Errs)
   module Sparse = Sparse_file.Make (Io)
   module Lower = Lower.Make (Io) (Errs)
@@ -366,6 +367,7 @@ struct
       }
     in
     instance := Some t;
+    register_dict_consumer t ~after_reload:(fun () -> Dict.refill dict);
     Ok t
 
   let create_control_file ~overwrite config pl =
@@ -596,7 +598,9 @@ struct
       | T15 ->
           Error `V3_store_from_the_future
     in
-    let make_dict = Dict.open_rw ~end_poff:dict_end_poff ~dead_header_size in
+    let make_dict ~path =
+      Dict.open_rw ~size:dict_end_poff ~dead_header_size path
+    in
     let make_suffix () =
       Suffix.open_rw ~root ~appendable_chunk_poff ~start_idx ~chunk_num
         ~dead_header_size
@@ -739,8 +743,8 @@ struct
     in
     let* prefix = open_prefix ~root ~generation in
     let* dict =
-      let path = Layout.dict ~root in
-      Dict.open_ro ~path ~end_poff:dict_end_poff ~dead_header_size
+      let filename = Layout.dict ~root in
+      Dict.open_ro ~size:dict_end_poff ~dead_header_size filename
     in
     let* index =
       let log_size = Conf.index_log_size config in

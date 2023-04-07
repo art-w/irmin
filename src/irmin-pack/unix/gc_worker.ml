@@ -23,7 +23,8 @@ module Make (Args : Gc_args.S) = struct
   open Args
   module Io = Fm.Io
   module Lower = Fm.Lower
-  module Sparse = Dispatcher.Fm.Sparse
+  module Dict = Fm.Dict
+  module Sparse = Fm.Sparse
   module Ao = Append_only_file.Make (Fm.Io) (Errs)
 
   let string_of_key = Irmin.Type.to_string key_t
@@ -252,7 +253,7 @@ module Make (Args : Gc_args.S) = struct
     Errors.finalise_exn (fun _outcome ->
         Fm.close fm |> Errs.log_if_error "GC: Close File_manager")
     @@ fun () ->
-    let dict = Dict.v fm |> Errs.raise_if_error in
+    let dict = Fm.dict fm in
     let dispatcher = Dispatcher.v fm |> Errs.raise_if_error in
     let node_store = Node_store.v ~config ~fm ~dict ~dispatcher in
     let commit_store = Commit_store.v ~config ~fm ~dict ~dispatcher in

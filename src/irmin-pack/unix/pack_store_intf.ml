@@ -90,7 +90,6 @@ module type Sigs = sig
 
   module Make
       (Fm : File_manager.S)
-      (Dict : Dict.S with module Fm = Fm)
       (Dispatcher : Dispatcher.S with module Fm = Fm)
       (Hash : Irmin.Hash.S with type t = Fm.Index.key)
       (Val : Pack_value.Persistent
@@ -103,5 +102,5 @@ module type Sigs = sig
        and type value = Val.t
        and type file_manager = Fm.t
        and type dispatcher = Dispatcher.t
-       and type dict = Dict.t
+       and type dict = Fm.Dict.t
 end
