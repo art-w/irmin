@@ -73,7 +73,7 @@ module type S = sig
   val chunk_num : t -> int
   val close : t -> (unit, [> Io.close_error | `Pending_flush ]) result
   val empty_buffer : t -> bool
-  val flush : t -> (unit, [> Io.write_error ]) result
+  val flush : t -> (unit, [> Io.write_error ]) Lwt_result.t
   val fsync : t -> (unit, [> Io.write_error ]) result
 
   val appendable_chunk_poff : t -> int63

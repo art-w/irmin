@@ -113,23 +113,27 @@ let start t =
 let test_one t ~(ro_reload_at : phase_flush) =
   let aux phase =
     let () = check_ro t in
-    if ro_reload_at = phase then reload_ro t phase;
-    check_ro t
+    let* () =
+      if ro_reload_at = phase then reload_ro t phase else Lwt.return_unit
+    in
+    check_ro t;
+    Lwt.return_unit
   in
   let* rw, _ = start t in
   let* () =
     Store.S.Backend.Repo.batch rw (fun bstore nstore cstore ->
         let* () = write1_no_flush bstore nstore cstore in
-        let () = aux S1_before_flush in
+        let* () = aux S1_before_flush in
         let hook = function
           | `After_dict -> aux S2_after_flush_dict
           | `After_suffix -> aux S3_after_flush_suffix
         in
-        let () =
+        let* () =
           Store.S.Internal.(
-            File_manager.flush ~hook (file_manager rw) |> Errs.raise_if_error)
+            let+ fl = File_manager.flush ~hook (file_manager rw) in
+            fl |> Errs.raise_if_error)
         in
-        let () = aux S4_after_flush in
+        let* () = aux S4_after_flush in
         Lwt.return_unit)
   in
   Lwt.return_unit
@@ -196,22 +200,25 @@ let flush_rw t (current_phase : phase_reload) =
   match t.rw with None -> assert false | Some (_, repo) -> Store.S.flush repo
 
 let test_one t ~(rw_flush_at : phase_reload) =
-  let aux phase = if rw_flush_at = phase then flush_rw t phase in
+  let aux phase =
+    if rw_flush_at = phase then flush_rw t phase else Lwt.return_unit
+  in
   let* rw, ro = start t in
   let reload_ro () =
     Store.S.Backend.Repo.batch rw (fun bstore nstore cstore ->
         let* () = write1_no_flush bstore nstore cstore in
-        let () = aux S1_before_reload in
+        let* () = aux S1_before_reload in
         let hook = function
           | `After_index -> aux S2_after_reload_index
           | `After_control -> aux S3_after_reload_control
           | `After_suffix -> aux S4_after_reload_suffix
         in
-        let () =
+        let* () =
           Store.S.Internal.(
-            File_manager.reload ~hook (file_manager ro) |> Errs.raise_if_error)
+            let+ fl = File_manager.reload ~hook (file_manager ro) in
+            fl |> Errs.raise_if_error)
         in
-        let () = aux S5_after_reload in
+        let* () = aux S5_after_reload in
         Lwt.return_unit)
   in
   let () = check_ro t in

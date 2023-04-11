@@ -46,7 +46,7 @@ module type S = sig
   val end_poff : t -> int63
   val close : t -> (unit, [> Io.close_error | `Pending_flush ]) result
   val fsync : t -> (unit, [> Io.write_error ]) result
-  val flush : t -> (unit, [> Io.write_error ]) result
+  val flush : t -> (unit, [> Io.write_error ]) Lwt_result.t
 end
 
 module type Sigs = sig

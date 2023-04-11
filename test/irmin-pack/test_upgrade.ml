@@ -627,7 +627,7 @@ let test_one t ~ro_open_at ~ro_sync_at =
     let* () = check t in
     let* () = if ro_open_at = phase then open_ro t phase else Lwt.return_unit in
     let* () = check t in
-    if ro_sync_at = phase then sync_ro t phase;
+    let* () = if ro_sync_at = phase then sync_ro t phase else Lwt.return_unit in
     let* () = check t in
     Lwt.return_unit
   in

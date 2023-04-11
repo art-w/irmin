@@ -94,11 +94,11 @@ module type S = sig
 
   (** {1 On-disk} *)
 
-  val reload : repo -> unit
+  val reload : repo -> unit Lwt.t
   (** [reload t] reloads a readonly pack with the files on disk. Raises
       [invalid_argument] if called by a read-write pack.*)
 
-  val flush : repo -> unit
+  val flush : repo -> unit Lwt.t
   (** [flush t] flush read-write pack on disk. Raises [RO_Not_Allowed] if called
       by a readonly instance.*)
 
@@ -279,7 +279,7 @@ module type S = sig
       val save_elt : process -> t -> node_key Lwt.t
       (** [save_elt snapshot elt] saves [elt] to the store. *)
 
-      val close : process -> repo -> unit
+      val close : process -> repo -> unit Lwt.t
       (** [close snapshot] close the [snaphot] instance.*)
     end
   end

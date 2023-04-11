@@ -80,7 +80,7 @@ let ro_reload_after_add () =
   let* ro = S.Repo.v (config ~readonly:true ~fresh:false root) in
   let tree = S.Tree.singleton [ "a" ] "x" in
   let* c1 = S.Commit.v rw ~parents:[] ~info:(info ()) tree in
-  S.reload ro;
+  let* () = S.reload ro in
   check ro c1 "a" "x" >>= fun () ->
   let tree = S.Tree.singleton [ "a" ] "y" in
   let* c2 = S.Commit.v rw ~parents:[] ~info:(info ()) tree in
@@ -90,7 +90,7 @@ let ro_reload_after_add () =
     | None -> ()
     | Some _ -> Alcotest.failf "should not find branch by"
   in
-  S.reload ro;
+  let* () = S.reload ro in
   check ro c2 "a" "y" >>= fun () ->
   S.Repo.close ro >>= fun () -> S.Repo.close rw
 
@@ -101,9 +101,10 @@ let ro_reload_after_close () =
   let* ro = S.Repo.v (config ~readonly:true ~fresh:false root) in
   let tree = binding (S.Tree.singleton ?metadata:None) in
   let* c1 = S.Commit.v rw ~parents:[] ~info:(info ()) tree in
-  S.Repo.close rw >>= fun () ->
-  S.reload ro;
-  binding (check_binding ro c1) >>= fun () -> S.Repo.close ro
+  let* () = S.Repo.close rw in
+  let* () = S.reload ro in
+  let* () = binding (check_binding ro c1) in
+  S.Repo.close ro
 
 let ro_batch () =
   let* rw = S.Repo.v (config ~readonly:false ~fresh:true root) in

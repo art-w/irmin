@@ -209,9 +209,15 @@ module Maker (Config : Conf.S) = struct
             dispatcher;
           }
 
-        let flush t = File_manager.flush ?hook:None t.fm |> Errs.raise_if_error
+        let flush t =
+          let* r = File_manager.flush ?hook:None t.fm in
+          Lwt.return (r |> Errs.raise_if_error)
+
         let fsync t = File_manager.fsync t.fm |> Errs.raise_if_error
-        let reload t = File_manager.reload t.fm |> Errs.raise_if_error
+
+        let reload t =
+          let+ r = File_manager.reload t.fm in
+          r |> Errs.raise_if_error
 
         module Gc = struct
           let is_allowed { fm; _ } = File_manager.gc_allowed fm
@@ -419,7 +425,8 @@ module Maker (Config : Conf.S) = struct
               let s = Mtime_clock.count c0 |> Mtime.Span.to_s in
               [%log.info "[pack] batch completed in %.6fs" s];
               t.during_batch <- false;
-              File_manager.flush t.fm |> Errs.raise_if_error;
+              let* fl = File_manager.flush t.fm in
+              fl |> Errs.raise_if_error;
               let* _ = try_finalise () in
               Lwt.return res
             in
@@ -428,15 +435,17 @@ module Maker (Config : Conf.S) = struct
               [%log.info
                 "[pack] batch failed. calling flush. (%s)"
                   (Printexc.to_string exn)];
-              let () =
-                match File_manager.flush t.fm with
-                | Ok () -> ()
-                | Error err ->
-                    [%log.err
-                      "[pack] batch failed and flush failed. Silencing flush \
-                       fail. (%a)"
-                      (Irmin.Type.pp Errs.t) err]
-              in
+              (* TODO
+                 let () =
+                   match File_manager.flush t.fm with
+                   | Ok () -> ()
+                   | Error err ->
+                       [%log.err
+                         "[pack] batch failed and flush failed. Silencing flush \
+                          fail. (%a)"
+                         (Irmin.Type.pp Errs.t) err]
+                 in
+              *)
               (* Kill gc process in at_exit. *)
               raise exn
             in
@@ -730,7 +739,7 @@ module Maker (Config : Conf.S) = struct
           | Inode x -> Import.save_inodes process x
 
         let close process repo =
-          flush repo;
+          let+ () = flush repo in
           fsync repo;
           Import.close process
       end

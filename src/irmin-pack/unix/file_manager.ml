@@ -101,24 +101,24 @@ struct
 
   (** Flush stage 1 *)
   let flush_dict t =
-    let open Result_syntax in
+    let open Lwt_result.Syntax in
     let* () =
-      if Dict.empty_buffer t.dict then Ok ()
+      if Dict.empty_buffer t.dict then Lwt_result.return ()
       else (
         Stats.incr_fm_field Dict_flushes;
         Dict.flush t.dict)
     in
-    if t.use_fsync then Dict.fsync t.dict else Ok ()
+    Lwt.return (if t.use_fsync then Dict.fsync t.dict else Ok ())
 
   let flush_suffix t =
-    let open Result_syntax in
+    let open Lwt_result.Syntax in
     let* () =
-      if Suffix.empty_buffer t.suffix then Ok ()
+      if Suffix.empty_buffer t.suffix then Lwt_result.return ()
       else (
         Stats.incr_fm_field Suffix_flushes;
         Suffix.flush t.suffix)
     in
-    if t.use_fsync then Suffix.fsync t.suffix else Ok ()
+    Lwt.return (if t.use_fsync then Suffix.fsync t.suffix else Ok ())
 
   let flush_control t =
     let pl : Payload.t = Control.payload t.control in
@@ -156,21 +156,35 @@ struct
 
   (** Flush stage 2 *)
   let flush_suffix_and_its_deps ?hook t =
-    let open Result_syntax in
+    let open Lwt_result.Syntax in
+    let (_
+          : ('a, 'e) Lwt_result.t ->
+            ('a -> ('b, 'e) Lwt_result.t) ->
+            ('b, 'e) Lwt_result.t) =
+      ( let* )
+    in
     let* () = flush_dict t in
-    (match hook with Some h -> h `After_dict | None -> ());
+    let* () =
+      match hook with
+      | Some h -> Lwt_result.ok (h `After_dict)
+      | None -> Lwt_result.return ()
+    in
     let* () = flush_suffix t in
-    let+ () = flush_control t in
+    let+ () = Lwt.return (flush_control t) in
     List.iter (fun { after_flush } -> after_flush ()) t.suffix_consumers
 
   (** Flush stage 3 *)
   let flush_index_and_its_deps ?hook t =
-    let open Result_syntax in
+    let open Lwt_result.Syntax in
     let* () = flush_suffix_and_its_deps ?hook t in
-    (match hook with Some h -> h `After_suffix | None -> ());
+    let* () =
+      match hook with
+      | Some h -> Lwt_result.ok (h `After_suffix)
+      | None -> Lwt_result.return ()
+    in
     let+ () =
       Stats.incr_fm_field Index_flushes;
-      Index.flush ~with_fsync:t.use_fsync t.index
+      Lwt.return (Index.flush ~with_fsync:t.use_fsync t.index)
     in
     ()
 
@@ -181,7 +195,10 @@ struct
       index will flush itself. *)
   let index_is_about_to_auto_flush_exn t =
     Stats.incr_fm_field Auto_index;
-    flush_suffix_and_its_deps t |> Errs.raise_if_error
+    Lwt.async (fun () ->
+        let+ e = flush_suffix_and_its_deps t in
+        e |> Errs.raise_if_error);
+    ()
 
   (* Explicit flush ********************************************************* *)
 
@@ -374,50 +391,58 @@ struct
 
   (* Reload ***************************************************************** *)
 
-  let reload ?hook t =
-    let open Result_syntax in
-    (* Step 1. Reread index *)
-    let* () = Index.reload t.index in
+  let reload ?hook:_ t =
+    Lwt.return
+      (let open Result_syntax in
+      (* Step 1. Reread index *)
+      let* () = Index.reload t.index in
+      (*
     (match hook with Some h -> h `After_index | None -> ());
-    let pl0 = Control.payload t.control in
-    (* Step 2. Reread control file *)
-    let* () = Control.reload t.control in
+    *)
+      let pl0 = Control.payload t.control in
+      (* Step 2. Reread control file *)
+      let* () = Control.reload t.control in
+      (*
     (match hook with Some h -> h `After_control | None -> ());
-    let pl1 : Payload.t = Control.payload t.control in
-    if pl0 = pl1 then Ok ()
-    else
-      (* Step 3. Reopen files if generation or chunk_num changed. *)
-      let* () =
-        let gen0 = generation pl0.status in
-        let gen1 = generation pl1.status in
-        let chunk_num0 = pl0.chunk_num in
-        let chunk_num1 = pl1.chunk_num in
-        let chunk_start_idx0 = pl0.chunk_start_idx in
-        let chunk_start_idx1 = pl1.chunk_start_idx in
-        (* Step 3.1. Potentially reload suffix *)
+    *)
+      let pl1 : Payload.t = Control.payload t.control in
+      if pl0 = pl1 then Ok ()
+      else
+        (* Step 3. Reopen files if generation or chunk_num changed. *)
         let* () =
-          if chunk_num0 <> chunk_num1 || chunk_start_idx0 <> chunk_start_idx1
-          then
-            let appendable_chunk_poff = pl1.appendable_chunk_poff in
-            reopen_suffix t ~chunk_start_idx:chunk_start_idx1
-              ~appendable_chunk_poff ~chunk_num:chunk_num1
-          else Ok ()
+          let gen0 = generation pl0.status in
+          let gen1 = generation pl1.status in
+          let chunk_num0 = pl0.chunk_num in
+          let chunk_num1 = pl1.chunk_num in
+          let chunk_start_idx0 = pl0.chunk_start_idx in
+          let chunk_start_idx1 = pl1.chunk_start_idx in
+          (* Step 3.1. Potentially reload suffix *)
+          let* () =
+            if chunk_num0 <> chunk_num1 || chunk_start_idx0 <> chunk_start_idx1
+            then
+              let appendable_chunk_poff = pl1.appendable_chunk_poff in
+              reopen_suffix t ~chunk_start_idx:chunk_start_idx1
+                ~appendable_chunk_poff ~chunk_num:chunk_num1
+            else Ok ()
+          in
+          (* Step 3.2. Potentially reload prefix *)
+          let* () =
+            if gen0 = gen1 then Ok () else reopen_prefix t ~generation:gen1
+          in
+          (* Step 3.3. Potentially reload lower *)
+          if gen0 = gen1 && pl0.volume_num = pl1.volume_num then Ok ()
+          else reload_lower t ~volume_num:pl1.volume_num
         in
-        (* Step 3.2. Potentially reload prefix *)
+        (* Step 4. Update end offsets *)
         let* () =
-          if gen0 = gen1 then Ok () else reopen_prefix t ~generation:gen1
+          Suffix.refresh_appendable_chunk_poff t.suffix
+            pl1.appendable_chunk_poff
         in
-        (* Step 3.3. Potentially reload lower *)
-        if gen0 = gen1 && pl0.volume_num = pl1.volume_num then Ok ()
-        else reload_lower t ~volume_num:pl1.volume_num
-      in
-      (* Step 4. Update end offsets *)
-      let* () =
-        Suffix.refresh_appendable_chunk_poff t.suffix pl1.appendable_chunk_poff
-      in
+        (*
       (match hook with Some h -> h `After_suffix | None -> ());
-      let* () = Dict.refresh_end_poff t.dict pl1.dict_end_poff in
-      Ok ()
+      *)
+        let* () = Dict.refresh_end_poff t.dict pl1.dict_end_poff in
+        Ok ())
 
   (* File creation ********************************************************** *)
 

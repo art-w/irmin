@@ -431,14 +431,16 @@ struct
       "[pack] calling batch directory on a store is not recommended. Use \
        repo.batch instead."];
     let on_success res =
-      Fm.flush t.fm |> Errs.raise_if_error;
+      let* ok = Fm.flush t.fm in
+      ok |> Errs.raise_if_error;
       Lwt.return res
     in
     let on_fail exn =
       [%log.info
         "[pack] batch failed. calling flush. (%s)" (Printexc.to_string exn)];
+      let* fl = Fm.flush t.fm in
       let () =
-        match Fm.flush t.fm with
+        match fl with
         | Ok () -> ()
         | Error err ->
             [%log.err

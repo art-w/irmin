@@ -154,4 +154,10 @@ module Make (Io : Io.S) (Errs : Io_errors.S with module Io = Io) = struct
         Buffer.add_string rw_perm.buf s;
         if Buffer.length rw_perm.buf >= auto_flush_threshold then
           flush t |> Errs.raise_if_error
+
+  let flush_no_lwt t = flush t
+
+  let flush t =
+    let r = flush t in
+    Lwt.return r
 end

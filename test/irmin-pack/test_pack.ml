@@ -92,8 +92,13 @@ module Context = Make_context (struct
   let root = test_dir
 end)
 
-let flush fm = File_manager.flush fm |> Errs.raise_if_error
-let reload fm = File_manager.reload fm |> Errs.raise_if_error
+let flush fm =
+  let+ fl = File_manager.flush fm in
+  fl |> Errs.raise_if_error
+
+let reload fm =
+  let+ re = File_manager.reload fm in
+  re |> Errs.raise_if_error
 
 module Dict = struct
   let test_dict () =
@@ -110,7 +115,7 @@ module Dict = struct
     Alcotest.(check (option int)) "titiabc" (Some 3) x4;
     let x1 = Dict.index d.dict "foo" in
     Alcotest.(check (option int)) "foo" (Some 0) x1;
-    flush d.fm;
+    let+ () = flush d.fm in
     let (d2 : Context.d) =
       Context.get_dict ~name:d.name ~readonly:false ~fresh:false ()
     in
@@ -159,8 +164,8 @@ module Dict = struct
     ignore_int (Dict.index d.dict "toto");
     ignore_int (Dict.index d.dict "titiabc");
     ignore_int (Dict.index d.dict "foo");
-    flush d.fm;
-    reload d2.fm;
+    let* () = flush d.fm in
+    let* () = reload d2.fm in
     check_index "titiabc" 3;
     check_index "bar" 1;
     check_index "toto" 2;
@@ -169,18 +174,18 @@ module Dict = struct
     ignore_int (Dict.index d.dict "hello");
     check_raise "hello";
     check_none "hello" 4;
-    flush d.fm;
-    reload d2.fm;
+    let* () = flush d.fm in
+    let* () = reload d2.fm in
     check_find "hello" 4;
     Context.close_dict d;
-    Context.close_dict d2
+    Context.close_dict d2;
+    Lwt.return ()
 
   let tests =
     [
-      Alcotest_lwt.test_case "dict" `Quick (fun _ () ->
-          Lwt.return (test_dict ()));
+      Alcotest_lwt.test_case "dict" `Quick (fun _ () -> test_dict ());
       Alcotest_lwt.test_case "RO dict" `Quick (fun _ () ->
-          Lwt.return (test_readonly_dict ()));
+          test_readonly_dict ());
     ]
 end
 
@@ -238,8 +243,8 @@ module Pack = struct
       let[@warning "-8"] [ _k1; k2 ] = adds [ (h1, x1); (h2, x2) ] in
       let* y2 = Pack.find t'.pack k2 in
       Alcotest.(check (option string)) "before reload" None y2;
-      flush t.fm;
-      reload t'.fm;
+      let* () = flush t.fm in
+      let* () = reload t'.fm in
       let* y2 = Pack.find t'.pack k2 in
       Alcotest.(check (option string)) "after reload" (Some x2) y2;
       let x3 = "otoo" in
@@ -247,8 +252,8 @@ module Pack = struct
       let h3 = sha1_contents x3 in
       let h4 = sha1_contents x4 in
       let[@warning "-8"] [ k3; _k4 ] = adds [ (h3, x3); (h4, x4) ] in
-      flush t.fm;
-      reload t'.fm;
+      let* () = flush t.fm in
+      let* () = reload t'.fm in
       let* y2 = Pack.find t'.pack k2 in
       Alcotest.(check (option string)) "y2" (Some x2) y2;
       let* y3 = Pack.find t'.pack k3 in
@@ -265,7 +270,7 @@ module Pack = struct
     let k1 =
       Pack.unsafe_append ~ensure_unique:true ~overcommit:false t.pack h1 x1
     in
-    flush t.fm;
+    let* () = flush t.fm in
     Context.close_pack t >>= fun () ->
     (*open and close in ro*)
     let* t1 = Context.get_ro_pack t.name in
@@ -340,11 +345,11 @@ module Pack = struct
       let k1 =
         Pack.unsafe_append ~ensure_unique:true ~overcommit:false w h1 x1
       in
-      reload t'.fm;
+      let* () = reload t'.fm in
       let* y1 = Pack.find t'.pack k1 in
       Alcotest.(check (option string)) "reload before filter" None y1;
       Index.filter t.index (fun _ -> true);
-      reload t'.fm;
+      let* () = reload t'.fm in
       let* y1 = Pack.find t'.pack k1 in
       Alcotest.(check (option string)) "reload after filter" (Some x1) y1;
       let x2 = "foo" in
@@ -372,8 +377,8 @@ module Pack = struct
       let k1 =
         Pack.unsafe_append ~ensure_unique:true ~overcommit:false w h1 x1
       in
-      flush t.fm;
-      reload t'.fm;
+      let* () = flush t.fm in
+      let* () = reload t'.fm in
       check k1 x1 "find before filter" >>= fun () ->
       Index.filter t.index (fun _ -> true);
       check k1 x1 "find after filter" >>= fun () ->
@@ -382,8 +387,8 @@ module Pack = struct
       let k2 =
         Pack.unsafe_append ~ensure_unique:true ~overcommit:false w h2 x2
       in
-      flush t.fm;
-      reload t'.fm;
+      let* () = flush t.fm in
+      let* () = reload t'.fm in
       check k2 x2 "find before flush" >>= fun () ->
       let x3 = "toto" in
       let h3 = sha1_contents x3 in
@@ -392,8 +397,8 @@ module Pack = struct
       in
       Index.flush t.index ~with_fsync:false |> Errs.raise_if_error;
       check k2 x2 "find after flush" >>= fun () ->
-      flush t.fm;
-      reload t'.fm;
+      let* () = flush t.fm in
+      let* () = reload t'.fm in
       check k3 x3 "find after flush new values"
     in
     test t.pack >>= fun () ->

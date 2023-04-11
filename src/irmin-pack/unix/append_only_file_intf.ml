@@ -132,7 +132,9 @@ module type S = sig
 
       Always raises [Errors.RO_not_allowed] *)
 
-  val flush : t -> (unit, [> Io.write_error ]) result
+  val flush_no_lwt : t -> (unit, [> Io.write_error ]) result
+
+  val flush : t -> (unit, [> Io.write_error ]) Lwt_result.t
   (** Flush the append buffer. Does not call [fsync].
 
       {3 RO mode}

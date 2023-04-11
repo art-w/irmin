@@ -287,8 +287,8 @@ module Make (Io : Io.S) = struct
 
     let flush t =
       let open Result_syntax in
-      let* () = Ao.flush t.data in
-      Ao.flush t.mapping
+      let* () = Ao.flush_no_lwt t.data in
+      Ao.flush_no_lwt t.mapping
 
     let close t =
       let open Result_syntax in

@@ -214,9 +214,10 @@ module type S = sig
     | `No_tmp_path_provided ]
 
   type flush_stages := [ `After_dict | `After_suffix ]
-  type 'a hook := 'a -> unit
+  type 'a hook := 'a -> unit Lwt.t
 
-  val flush : ?hook:flush_stages hook -> t -> (unit, [> flush_error ]) result
+  val flush :
+    ?hook:flush_stages hook -> t -> (unit, [> flush_error ]) Lwt_result.t
   (** Execute the flush routine. Note that this routine may be automatically
       triggered when buffers are filled. *)
 
@@ -232,7 +233,7 @@ module type S = sig
 
   type reload_stages := [ `After_index | `After_control | `After_suffix ]
 
-  val reload : ?hook:reload_stages hook -> t -> (unit, [> Errs.t ]) result
+  val reload : ?hook:reload_stages hook -> t -> (unit, [> Errs.t ]) Lwt_result.t
   (** Execute the reload routine.
 
       Is a no-op if the control file did not change. *)

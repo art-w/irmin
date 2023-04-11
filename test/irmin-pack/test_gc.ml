@@ -449,7 +449,7 @@ module Gc_common (B : Gc_backend) = struct
     let* t, c2 = commit_2 t in
     let* t = checkout_exn t c1 in
     let* t, c3 = commit_3 t in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     [%log.debug "Gc c1, c2, keeps c3"];
     let* () = start_gc t c3 in
     let* () = finalise_gc t in
@@ -457,7 +457,7 @@ module Gc_common (B : Gc_backend) = struct
     let* () = check_1 ro_t c1 in
     let* () = check_2 ro_t c2 in
     let* () = check_3 ro_t c3 in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     [%log.debug "commits gced for RO after reload"];
     let* () = check_3 ro_t c3 in
     let* () = B.check_gced ro_t c1 "c1" in
@@ -466,7 +466,7 @@ module Gc_common (B : Gc_backend) = struct
     let* t, c4 = commit_4 t in
     let* t = checkout_exn t c4 in
     let* t, c5 = commit_5 t in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     [%log.debug "Gc c3, keep c4, c5"];
     let* () = start_gc t c4 in
     let* () = finalise_gc t in
@@ -474,7 +474,7 @@ module Gc_common (B : Gc_backend) = struct
     let* () = check_3 ro_t c3 in
     let* () = check_4 ro_t c4 in
     let* () = check_5 ro_t c5 in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     [%log.debug "RO finds c4, c5 but c3 gced after reload"];
     let* () = check_4 ro_t c4 in
     let* () = check_5 ro_t c5 in
@@ -490,7 +490,7 @@ module Gc_common (B : Gc_backend) = struct
     let* t = B.init () in
     let* ro_t = B.init ~readonly:true ~fresh:false ~root:t.root () in
     let* t, c1 = commit_1 t in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = start_gc t c1 in
     let* () = finalise_gc t in
     let* t = checkout_exn t c1 in
@@ -501,7 +501,7 @@ module Gc_common (B : Gc_backend) = struct
     let* () = check_1 ro_t c1 in
     let* () = check_not_found ro_t c2 "c2" in
     [%log.debug "RO finds c2, but c1 gced after reload"];
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_2 ro_t c2 in
     let* () = B.check_gced ro_t c1 "c1" in
     let* () = S.Repo.close t.repo in
@@ -523,7 +523,7 @@ module Gc_common (B : Gc_backend) = struct
     let* () = B.check_gced ro_t c1 "gced c1" in
     let* t = checkout_exn t c2 in
     let* t, c3 = commit_3 t in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_3 t c3 in
     let* () = check_3 ro_t c3 in
     let* () = B.check_gced ro_t c1 "gced c1" in
@@ -535,7 +535,7 @@ module Gc_common (B : Gc_backend) = struct
     let* t = B.init () in
     let* t, c1 = commit_1 t in
     let* ro_t = B.init ~readonly:true ~fresh:false ~root:t.root () in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_1 ro_t c1 in
     let* () = S.Repo.close t.repo in
     S.Repo.close ro_t.repo
@@ -934,14 +934,14 @@ module Concurrent_gc = struct
     let* t, c2 = commit_2 t in
     [%log.debug "Gc c1 keep c2"];
     let* () = start_gc t c2 in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_1 ro_t c1 in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_2 ro_t c2 in
     let* () = finalise_gc t in
     let* () = check_1 ro_t c1 in
     let* () = check_2 ro_t c2 in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_not_found ro_t c1 "removed c1" in
     let* () = check_2 t c2 in
     let* () = S.Repo.close t.repo in
@@ -957,10 +957,10 @@ module Concurrent_gc = struct
     let* t, c2 = commit_2 t in
     [%log.debug "Gc c1 keep c2"];
     let* () = start_gc t c2 in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* t = checkout_exn t c2 in
     let* t, c3 = commit_3 t in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* t = checkout_exn t c2 in
     let* t, c4 = commit_4 t in
     let* () = finalise_gc t in
@@ -968,7 +968,7 @@ module Concurrent_gc = struct
     let* () = check_1 ro_t c1 in
     let* () = check_2 ro_t c2 in
     let* () = check_3 ro_t c3 in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_not_found ro_t c1 "removed c1" in
     let* () = check_4 ro_t c4 in
     let* () = S.Repo.close t.repo in
@@ -990,7 +990,7 @@ module Concurrent_gc = struct
     [%log.debug "Gc c2 keep c3"];
     let* () = start_gc t c3 in
     let* () = finalise_gc t in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_not_found ro_t c1 "removed c1" in
     let* () = check_not_found ro_t c2 "removed c2" in
     let* () = check_3 t c3 in
@@ -1010,11 +1010,11 @@ module Concurrent_gc = struct
     let* rw_t = checkout_exn rw_t c2 in
     let* rw_t, c3 = commit_3 rw_t in
     (* Reload RO to get all changes, and read some data *)
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_3 ro_t c3 in
     let count_before_reload = lru_hits () in
     (* Reload should not clear LRU *)
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_3 ro_t c3 in
     Alcotest.(check bool)
       "reload does not clear LRU" true
@@ -1024,7 +1024,7 @@ module Concurrent_gc = struct
     let* () = start_gc rw_t c2 in
     let* () = finalise_gc rw_t in
     (* Reload RO to get changes and clear LRU, and read some data *)
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_3 ro_t c3 in
     Alcotest.(check int) "reload does clear LRU" count_before_gc (lru_hits ());
     let* () = S.Repo.close rw_t.repo in
@@ -1165,18 +1165,18 @@ module Split = struct
     let () = S.split t.repo in
     let* t = checkout_exn t c1 in
     [%log.debug "created chunk2, find in chunk1"];
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_1 ro_t c1 in
     let* t, c2 = commit_2 t in
     let () = S.split t.repo in
     let* t = checkout_exn t c2 in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* t, c3 = commit_3 t in
     [%log.debug "created chunk3, find in chunk1, chunk2, chunk3"];
     let* () = check_1 t c1 in
     let* () = check_2 t c2 in
     let* () = check_not_found ro_t c3 "c3 is not yet reloaded" in
-    S.reload ro_t.repo;
+    let* () = S.reload ro_t.repo in
     let* () = check_3 t c3 in
     let* () = S.Repo.close t.repo in
     S.Repo.close ro_t.repo

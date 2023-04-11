@@ -152,7 +152,10 @@ struct
     let index = File_manager.index fm in
     let dict = File_manager.dict fm in
     let pack = Pack.v ~config ~fm ~dict ~dispatcher in
-    (f := fun () -> File_manager.flush fm |> Errs.raise_if_error);
+    (* TODO:
+       (f := fun () -> File_manager.flush fm |> Errs.raise_if_error);
+    *)
+    (f := fun () -> ());
     { name; index; pack; dict; fm } |> Lwt.return
 
   let get_rw_pack () =
