@@ -23,26 +23,41 @@ module Make (Io : Io.S) (Errs : Io_errors.S with module Io = Io) = struct
 
   let auto_flush_threshold = 16_384
 
-  type rw_perm = { buf : Buffer.t }
-  (** [rw_perm] contains the data necessary to operate in readwrite mode. *)
+  type rw_perm =
+    | Read_only
+    | Strict of { buf : Buffer.t }
+    | Lwt of {
+        buf : Buffer.t;
+        fd : Lwt_unix.file_descr;
+        mutable lwt : unit Lwt.t;
+      }
+        (** [rw_perm] contains the data necessary to operate in readwrite mode. *)
 
   type t = {
     io : Io.t;
     mutable persisted_end_poff : int63;
+    mutable comitted_end_poff : int63;
     dead_header_size : int63;
-    rw_perm : rw_perm option;
+    rw_perm : rw_perm;
   }
 
-  let create_rw ~path ~overwrite =
+  let make_rw ~kind io buf =
+    match kind with
+    | `Strict -> Strict { buf }
+    | `Lwt ->
+        let fd = Lwt_unix.of_unix_file_descr (Io.fd io) in
+        Lwt { buf; fd; lwt = Lwt.return_unit }
+
+  let create_rw ~path ~overwrite ~kind =
     let open Result_syntax in
     let+ io = Io.create ~path ~overwrite in
-    let persisted_end_poff = Int63.zero in
     let buf = Buffer.create 0 in
     {
       io;
-      persisted_end_poff;
+      persisted_end_poff = Int63.zero;
+      comitted_end_poff = Int63.zero;
       dead_header_size = Int63.zero;
-      rw_perm = Some { buf };
+      rw_perm = make_rw ~kind io buf;
     }
 
   (** A store is consistent if the real offset of the suffix/dict files is the
@@ -71,25 +86,36 @@ module Make (Io : Io.S) (Errs : Io_errors.S with module Io = Io) = struct
           Int63.pp end_poff Int63.pp real_offset_without_header (Io.path io)];
       Ok ())
 
-  let open_rw ~path ~end_poff ~dead_header_size =
+  let open_rw ~path ~end_poff ~dead_header_size ~kind =
     let open Result_syntax in
     let* io = Io.open_ ~path ~readonly:false in
     let+ () = check_consistent_store ~end_poff ~dead_header_size io in
-    let persisted_end_poff = end_poff in
     let dead_header_size = Int63.of_int dead_header_size in
     let buf = Buffer.create 0 in
-    { io; persisted_end_poff; dead_header_size; rw_perm = Some { buf } }
+    {
+      io;
+      persisted_end_poff = end_poff;
+      comitted_end_poff = end_poff;
+      dead_header_size;
+      rw_perm = make_rw ~kind io buf;
+    }
 
   let open_ro ~path ~end_poff ~dead_header_size =
     let open Result_syntax in
     let* io = Io.open_ ~path ~readonly:true in
     let+ () = check_consistent_store ~end_poff ~dead_header_size io in
-    let persisted_end_poff = end_poff in
     let dead_header_size = Int63.of_int dead_header_size in
-    { io; persisted_end_poff; dead_header_size; rw_perm = None }
+    {
+      io;
+      persisted_end_poff = end_poff;
+      comitted_end_poff = end_poff;
+      dead_header_size;
+      rw_perm = Read_only;
+    }
 
   let empty_buffer = function
-    | { rw_perm = Some { buf; _ }; _ } when Buffer.length buf > 0 -> false
+    | { rw_perm = Strict { buf; _ } | Lwt { buf; _ }; _ } ->
+        Buffer.length buf = 0
     | _ -> true
 
   let close t =
@@ -100,22 +126,25 @@ module Make (Io : Io.S) (Errs : Io_errors.S with module Io = Io) = struct
 
   let end_poff t =
     match t.rw_perm with
-    | None -> t.persisted_end_poff
-    | Some rw_perm ->
+    | Read_only -> t.persisted_end_poff
+    | Strict { buf; _ } ->
         let open Int63.Syntax in
-        t.persisted_end_poff + (Buffer.length rw_perm.buf |> Int63.of_int)
+        t.persisted_end_poff + (Buffer.length buf |> Int63.of_int)
+    | Lwt { buf; _ } ->
+        let open Int63.Syntax in
+        t.comitted_end_poff + (Buffer.length buf |> Int63.of_int)
 
   let refresh_end_poff t new_end_poff =
     match t.rw_perm with
-    | Some _ -> Error `Rw_not_allowed
-    | None ->
+    | Read_only ->
         t.persisted_end_poff <- new_end_poff;
         Ok ()
+    | _ -> Error `Rw_not_allowed
 
-  let flush t =
+  let flush_no_lwt t =
     match t.rw_perm with
-    | None -> Error `Ro_not_allowed
-    | Some rw_perm ->
+    | Read_only -> Error `Ro_not_allowed
+    | Strict rw_perm ->
         let open Result_syntax in
         let open Int63.Syntax in
         let s = Buffer.contents rw_perm.buf in
@@ -127,6 +156,52 @@ module Make (Io : Io.S) (Errs : Io_errors.S with module Io = Io) = struct
            [truncate] doesn't deallocate the internal buffer. We use
            [clear] in legacy_io. *)
         Buffer.truncate rw_perm.buf 0
+    | Lwt _ -> failwith "flush on lwt!!"
+
+  let flush_fast t =
+    match t.rw_perm with
+    | Read_only -> Error `Ro_not_allowed
+    | Strict _ -> failwith "flush strict!!"
+    | Lwt rw_perm ->
+        let s = Buffer.contents rw_perm.buf in
+        let off =
+          let open Int63.Syntax in
+          t.comitted_end_poff + t.dead_header_size
+        in
+        let () =
+          let open Int63.Syntax in
+          t.comitted_end_poff <-
+            t.comitted_end_poff + (String.length s |> Int63.of_int)
+        in
+        let lwt =
+          let open Lwt.Syntax in
+          let* () = rw_perm.lwt in
+          let bytes = Bytes.unsafe_of_string s in
+          let rec aux file_offset off length =
+            let* w =
+              (* Syscalls.pwrite ~fd ~fd_offset ~buffer ~buffer_offset ~length in *)
+              Lwt_unix.pwrite rw_perm.fd bytes ~file_offset off length
+            in
+            if w = 0 || w = length then Lwt.return ()
+            else aux (file_offset + w) (off + w) (length - w)
+          in
+          let+ () = aux (Int63.to_int off) 0 (String.length s) in
+          let open Int63.Syntax in
+          t.persisted_end_poff <-
+            t.persisted_end_poff + (String.length s |> Int63.of_int)
+          (*
+          let+ () =
+            Lwt_unix.pwrite rw_perm.fd bytes ~file_offset:(Int63.to_int off) 0
+              (String.length s)
+          in
+          *)
+        in
+        rw_perm.lwt <- lwt;
+        (* [truncate] is semantically identical to [clear], except that
+           [truncate] doesn't deallocate the internal buffer. We use
+           [clear] in legacy_io. *)
+        Buffer.truncate rw_perm.buf 0;
+        Ok ()
 
   let fsync t = Io.fsync t.io
 
@@ -148,16 +223,24 @@ module Make (Io : Io.S) (Errs : Io_errors.S with module Io = Io) = struct
 
   let append_exn t s =
     match t.rw_perm with
-    | None -> raise Errors.RO_not_allowed
-    | Some rw_perm ->
+    | Read_only -> raise Errors.RO_not_allowed
+    | Strict rw_perm ->
         assert (Buffer.length rw_perm.buf < auto_flush_threshold);
         Buffer.add_string rw_perm.buf s;
         if Buffer.length rw_perm.buf >= auto_flush_threshold then
-          flush t |> Errs.raise_if_error
-
-  let flush_no_lwt t = flush t
+          flush_no_lwt t |> Errs.raise_if_error
+    | Lwt rw_perm ->
+        assert (Buffer.length rw_perm.buf < auto_flush_threshold);
+        Buffer.add_string rw_perm.buf s;
+        if Buffer.length rw_perm.buf >= auto_flush_threshold then
+          flush_fast t |> Errs.raise_if_error
 
   let flush t =
-    let r = flush t in
-    Lwt.return r
+    let () = flush_fast t |> Errs.raise_if_error in
+    match t.rw_perm with
+    | Read_only -> failwith "flush ro!!"
+    | Strict _ -> failwith "flush strict!!"
+    | Lwt rw_perm ->
+        let+ () = rw_perm.lwt in
+        Ok ()
 end

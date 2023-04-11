@@ -203,8 +203,11 @@ struct
   (* Explicit flush ********************************************************* *)
 
   let flush ?hook t =
-    Stats.incr_fm_field Flush;
-    flush_index_and_its_deps ?hook t
+    let readonly = Suffix.readonly t.suffix in
+    if readonly then Lwt.return (Ok ())
+    else (
+      Stats.incr_fm_field Flush;
+      flush_index_and_its_deps ?hook t)
 
   (* Explicit fsync ********************************************************* *)
 

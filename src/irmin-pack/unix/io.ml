@@ -93,6 +93,8 @@ module Unix = struct
     path : string;
   }
 
+  let fd t = t.fd
+
   let classify_path p =
     Unix.(
       try

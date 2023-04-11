@@ -92,7 +92,7 @@ module Make (Io : Io.S) = struct
 
   let create_rw ~overwrite ~path:filename =
     let open Result_syntax in
-    let* ao = Ao.create_rw ~overwrite ~path:filename in
+    let* ao = Ao.create_rw ~overwrite ~path:filename ~kind:`Lwt in
     Ok (v_empty ao)
 
   let v_filled ao =
@@ -103,7 +103,9 @@ module Make (Io : Io.S) = struct
 
   let open_rw ~size ~dead_header_size filename =
     let open Result_syntax in
-    let* ao = Ao.open_rw ~path:filename ~end_poff:size ~dead_header_size in
+    let* ao =
+      Ao.open_rw ~path:filename ~end_poff:size ~dead_header_size ~kind:`Lwt
+    in
     v_filled ao
 
   let open_ro ~size ~dead_header_size filename =

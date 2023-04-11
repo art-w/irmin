@@ -29,6 +29,8 @@ module type S = sig
 
   type t
 
+  val fd : t -> Unix.file_descr
+
   (** {1 Errors} *)
 
   type misc_error [@@deriving irmin]

@@ -144,7 +144,7 @@ struct
   }
 
   let create ~readonly ~fresh name =
-    let f = ref (fun () -> ()) in
+    let f = ref (fun () -> Lwt.return_unit) in
     let config = config ~readonly ~fresh name in
     let fm = get_fm config in
     let dispatcher = Dispatcher.v fm |> Errs.raise_if_error in
@@ -152,10 +152,10 @@ struct
     let index = File_manager.index fm in
     let dict = File_manager.dict fm in
     let pack = Pack.v ~config ~fm ~dict ~dispatcher in
-    (* TODO:
-       (f := fun () -> File_manager.flush fm |> Errs.raise_if_error);
-    *)
-    (f := fun () -> ());
+    (f :=
+       fun () ->
+         let+ e = File_manager.flush fm in
+         e |> Errs.raise_if_error);
     { name; index; pack; dict; fm } |> Lwt.return
 
   let get_rw_pack () =
@@ -166,6 +166,8 @@ struct
   let reopen_rw name = create ~readonly:false ~fresh:false name
 
   let close_pack t =
+    let* e = File_manager.flush t.fm in
+    e |> Errs.raise_if_error;
     Index.close_exn t.index;
     File_manager.close t.fm |> Errs.raise_if_error;
     (* closes pack and dict *)

@@ -29,15 +29,20 @@ module type S = sig
   module Errs : Io_errors.S
 
   type t
+  type kind := [ `Strict | `Lwt ]
 
   val create_rw :
-    path:string -> overwrite:bool -> (t, [> Io.create_error ]) result
+    path:string ->
+    overwrite:bool ->
+    kind:kind ->
+    (t, [> Io.create_error ]) result
   (** Create a rw instance of [t] by creating the file at [path]. *)
 
   val open_rw :
     path:string ->
     end_poff:int63 ->
     dead_header_size:int ->
+    kind:kind ->
     ( t,
       [> Io.open_error
       | `Closed

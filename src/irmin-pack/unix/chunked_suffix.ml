@@ -201,7 +201,7 @@ module Make (Io : Io.S) (Errs : Io_errors.S with module Io = Io) = struct
     let open Result_syntax in
     let chunk_idx = start_idx in
     let path = chunk_path ~root ~chunk_idx in
-    let+ ao = Ao.create_rw ~path ~overwrite in
+    let+ ao = Ao.create_rw ~path ~overwrite ~kind:`Lwt in
     let chunk = { idx = chunk_idx; suffix_off = Int63.zero; ao } in
     let inventory = Inventory.v 1 (Fun.const chunk) in
     { inventory; root; dead_header_size = 0 }
@@ -240,7 +240,7 @@ module Make (Io : Io.S) (Errs : Io_errors.S with module Io = Io) = struct
           ~is_appendable
       in
       match is_appendable with
-      | true -> Ao.open_rw ~path ~end_poff ~dead_header_size
+      | true -> Ao.open_rw ~path ~end_poff ~dead_header_size ~kind:`Lwt
       | false -> Ao.open_ro ~path ~end_poff ~dead_header_size
     in
     let+ inventory = Inventory.open_ ~start_idx ~chunk_num ~open_chunk in
@@ -325,7 +325,7 @@ module Make (Io : Io.S) (Errs : Io_errors.S with module Io = Io) = struct
           ~is_legacy ~is_appendable
       in
       match is_appendable with
-      | true -> Ao.create_rw ~path ~overwrite:true
+      | true -> Ao.create_rw ~path ~overwrite:true ~kind:`Lwt
       | false -> Ao.open_ro ~path ~end_poff ~dead_header_size
     in
     Inventory.add_new_appendable ~open_chunk t.inventory
