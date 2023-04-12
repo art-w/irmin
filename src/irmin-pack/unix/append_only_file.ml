@@ -21,7 +21,7 @@ module Make (Io : Io.S) (Errs : Io_errors.S with module Io = Io) = struct
   module Io = Io
   module Errs = Errs
 
-  let auto_flush_threshold = 16_384
+  let auto_flush_threshold = 512
 
   type rw_perm =
     | Read_only
@@ -45,7 +45,7 @@ module Make (Io : Io.S) (Errs : Io_errors.S with module Io = Io) = struct
     match kind with
     | `Strict -> Strict { buf }
     | `Lwt ->
-        let fd = Lwt_unix.of_unix_file_descr (Io.fd io) in
+        let fd = Lwt_unix.of_unix_file_descr ~blocking:false (Io.fd io) in
         Lwt { buf; fd; lwt = Lwt.return_unit }
 
   let create_rw ~path ~overwrite ~kind =
