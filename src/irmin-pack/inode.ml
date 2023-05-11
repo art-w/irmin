@@ -1290,40 +1290,48 @@ struct
 
     let find ?(cache = true) layout t s = find_value ~cache layout t s
 
-    let rec add layout ~depth ~copy ~replace parent s key v k =
+    let rec add layout ~depth ~copy parent s key v =
       Stats.incr_inode_rec_add ();
       match parent.v with
-      | Values vs ->
-          let length =
-            if replace then StepMap.cardinal vs else StepMap.cardinal vs + 1
-          in
-          let parent =
-            if length <= Conf.entries then values layout (StepMap.add s v vs)
-            else
-              let vs = StepMap.bindings (StepMap.add s v vs) in
-              let empty =
-                tree layout
-                  { length = 0; depth; entries = Array.make Conf.entries None }
+      | Values vs -> (
+          match StepMap.find_opt s vs with
+          | Some v' when equal_value v v' -> (true, parent)
+          | opt ->
+              let replace = opt <> None in
+              let length =
+                if replace then StepMap.cardinal vs else StepMap.cardinal vs + 1
               in
-              let aux t (s', v) =
-                let key' = Child_ordering.key s' in
-                (add [@tailcall]) layout ~depth ~copy:false ~replace t s' key' v
-                  (fun x -> x)
+              let vvs = StepMap.add s v vs in
+              let parent =
+                if length <= Conf.entries then
+                  values layout vvs
+                else
+                  let empty =
+                    tree layout
+                      {
+                        length = 0;
+                        depth;
+                        entries = Array.make Conf.entries None;
+                      }
+                  in
+                  let aux s' v t =
+                    let key' = Child_ordering.key s' in
+                    let _, t = add layout ~depth ~copy:false t s' key' v in
+                    t
+                  in
+                  StepMap.fold aux vvs empty
               in
-              List.fold_left aux empty vs
-          in
-          k parent
+              (replace, parent))
       | Tree tr -> (
           assert (depth = tr.depth);
-          let length = if replace then tr.length else tr.length + 1 in
           let entries = if copy then Array.copy tr.entries else tr.entries in
           let i = index ~depth key in
           match entries.(i) with
           | None ->
               let child = values layout (StepMap.singleton s v) in
               entries.(i) <- Some (Ptr.of_target layout child);
-              let parent = tree layout { tr with length; entries } in
-              k parent
+              let length = tr.length + 1 in
+              (false, tree layout { tr with length; entries })
           | Some ptr ->
               let child =
                 let expected_depth = depth + 1 in
@@ -1332,22 +1340,21 @@ struct
                 Ptr.target ~expected_depth ~cache:true ~force:true "add" layout
                   ptr
               in
-              (add [@tailcall]) layout ~depth:(depth + 1) ~copy ~replace child s
-                key v (fun child ->
-                  entries.(i) <- Some (Ptr.of_target layout child);
-                  let parent = tree layout { tr with length; entries } in
-                  k parent))
+              let replace, child' =
+                add layout ~depth:(depth + 1) ~copy child s key v
+              in
+              if child' == child then (
+                assert replace;
+                (replace, parent))
+              else
+                let length = if replace then tr.length else tr.length + 1 in
+                entries.(i) <- Some (Ptr.of_target layout child');
+                (replace, tree layout { tr with length; entries }))
 
     let add layout ~copy t s v =
       let k = Child_ordering.key s in
-      match find_value ~cache:true layout t s with
-      | Some v' when equal_value v v' -> t
-      | Some _ ->
-          add ~depth:0 layout ~copy ~replace:true t s k v Fun.id
-          |> stabilize_root layout
-      | None ->
-          add ~depth:0 layout ~copy ~replace:false t s k v Fun.id
-          |> stabilize_root layout
+      let _, t' = add ~depth:0 layout ~copy t s k v in
+      if t' == t then t' else stabilize_root layout t'
 
     let rec remove layout parent s key k =
       Stats.incr_inode_rec_remove ();
