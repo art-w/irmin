@@ -27,7 +27,7 @@ depends: [
   "logs"    {>= "0.5.0"}
   "bheap" {>= "2.0.0"}
   "astring"
-  "mtime" {>= "1.0.0" & < "2.0.0"}
+  "mtime" {>= "2.0.0"}
   "bigstringaf" { >= "0.2.0" }
   "ppx_irmin" {= version}
   "hex"      {with-test}
@@ -38,6 +38,12 @@ depends: [
   "vector" {with-test}
   "odoc" {(< "2.0.1" | > "2.0.2") & with-doc} # See https://github.com/ocaml/odoc/issues/793
   "bisect_ppx" {dev & >= "2.5.0"}
+]
+
+pin-depends: [
+  # Metrics may have been unnecessarily constrained in opam-repository
+  [ "metrics.dev" "git+https://github.com/mirage/metrics#995eb18d2837df02c8ead719c00fb156cf475ab5"]
+  [ "metrics-unix.dev" "git+https://github.com/mirage/metrics#995eb18d2837df02c8ead719c00fb156cf475ab5"]
 ]
 
 conflicts: [
