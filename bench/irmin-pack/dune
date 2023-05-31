@@ -1,14 +1,13 @@
 (executables
  (names main)
  (public_names bench-pack)
- (modules main import)
+ (modules main)
  (package irmin-bench)
  (preprocess
   (pps ppx_irmin.internal ppx_repr))
  (libraries
   irmin-pack
   irmin-test.bench
-  lwt
   unix
   cmdliner
   logs
@@ -21,7 +20,7 @@
 (library
  (name bench_common)
  (public_name irmin-bench.common)
- (modules bench_common)
+ (modules bench_common import)
  (libraries irmin-pack irmin-pack.unix irmin-tezos unix progress uuidm)
  (preprocess
   (pps ppx_irmin.internal))
@@ -49,7 +48,6 @@
   irmin
   irmin-pack
   unix
-  lwt
   repr
   ppx_repr
   bentov
@@ -70,7 +68,6 @@
   irmin-pack
   irmin-pack.mem
   irmin-test.bench
-  lwt
   unix
   cmdliner
   logs

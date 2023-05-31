@@ -88,9 +88,9 @@ let create_pp_seconds examples =
       Float.neg_infinity examples
   in
   let finite_pp =
-    if absmax >= 60. then fun ppf v -> Mtime.Span.pp_float_s ppf v
+    if absmax >= 60. then fun ppf v -> Format.fprintf ppf "%.3f s" (v /. 60.0)
     else if absmax < 100. *. 1e-12 then fun ppf v ->
-      Format.fprintf ppf "%.3e s" v
+      Format.fprintf ppf "%.3f s" v
     else if absmax < 100. *. 1e-9 then fun ppf v ->
       Format.fprintf ppf "%.3f ns" (v *. 1e9)
     else if absmax < 100. *. 1e-6 then fun ppf v ->
