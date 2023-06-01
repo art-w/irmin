@@ -3,6 +3,7 @@
  (modules test_http)
  (libraries
   alcotest
+  eio_main
   cohttp-lwt
   cohttp-lwt-unix
   conduit
@@ -10,9 +11,9 @@
   fmt
   irmin-test
   test_mem
-  test_git
+  ; test_git
   test_fs_unix
-  test_git_unix
+  ; test_git_unix
   irmin
   irmin-http.unix
   logs
