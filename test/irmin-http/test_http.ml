@@ -38,7 +38,6 @@ struct
 end
 
 let http_store id (module S : Irmin_test.S) =
-  Format.printf "http_store?@.";
   let module P = Sock (struct
     let id = id
   end) in
@@ -95,13 +94,9 @@ let wait_for_the_server_to_start id =
 let servers =
   [
     (`Quick, Test_mem.suite);
-    (*
     (`Quick, Test_git.suite);
-    *)
     (`Quick, Test_fs_unix.suite);
-    (*
     (`Quick, Test_git_unix.suite);
-    *)
   ]
 
 module Conf = Irmin_http.Conf
@@ -198,7 +193,6 @@ let kill_server socket pid =
   Fmt.epr "Server [PID %d] is killed.\n%!" pid
 
 let suite i server =
-  Format.printf "i=%i@." i;
   let id =
     { name = Irmin_test.Suite.name server; id = Random.int 0x3FFFFFFF }
   in
@@ -210,7 +204,6 @@ let suite i server =
   Irmin_test.Suite.create
     ~name:(Printf.sprintf "HTTP.%s" (Irmin_test.Suite.name server))
     ~init:(fun ~config:_ ->
-      Format.printf "init i=%i@." i;
       remove socket;
       remove (pid_file id);
       let () =

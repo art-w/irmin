@@ -11,9 +11,9 @@
   fmt
   irmin-test
   test_mem
-  ; test_git
+  test_git
   test_fs_unix
-  ; test_git_unix
+  test_git_unix
   irmin
   irmin-http.unix
   logs
