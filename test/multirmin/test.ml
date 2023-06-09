@@ -12,7 +12,8 @@ let config ?(readonly = false) ?(fresh = true) root =
 
 let info () = S.Info.empty
 
-let do_the_do t ro i =
+let do_the_do ro i =
+  let t = S.main ro in
   let c = S.Head.get t in
   match S.Commit.of_hash ro (S.Commit.hash c) with
   | None -> failwith "no hash"
@@ -35,10 +36,9 @@ let open_ro_after_rw_closed env =
   S.set_tree_exn ~parents:[] ~info t [] tree;
   S.Repo.close rw;
   let ro = S.Repo.v (config ~readonly:true ~fresh:false root) in
-  let t = S.main ro in
   let l =
     List.init 7 (fun i () ->
-        Eio.Domain_manager.run env (repeatedly_do (do_the_do t ro) i))
+        Eio.Domain_manager.run env (repeatedly_do (do_the_do ro) i))
   in
   Eio.Fiber.all l;
   S.Repo.close ro
