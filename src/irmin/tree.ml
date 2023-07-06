@@ -481,7 +481,7 @@ module Make (P : Backend.S) = struct
              Portable_dirty (v, m))
       |> sealv
 
-    let of_v ~env v =
+    let of_v ?findv_cache ~env v =
       let ptr, map, value =
         match v with
         | Map m -> (Ptr_none, Some m, None)
@@ -489,14 +489,18 @@ module Make (P : Backend.S) = struct
         | Value (_, v, None) -> (Ptr_none, None, Some v)
         | Value _ | Portable_dirty _ | Pruned _ -> (Ptr_none, None, None)
       in
-      let findv_cache = None in
       let info = { ptr; map; value; findv_cache; env } in
       { v; info }
 
     let of_map m = of_v (Map m)
     let of_key repo k = of_v (Key (repo, k))
-    let of_value ?updates repo v = of_v (Value (repo, v, updates))
-    let of_portable_dirty p updates = of_v (Portable_dirty (p, updates))
+
+    let of_value ?findv_cache ?updates ~env repo v =
+      of_v ?findv_cache ~env (Value (repo, v, updates))
+
+    let of_portable_dirty ?findv_cache ~env p updates =
+      of_v ?findv_cache ~env (Portable_dirty (p, updates))
+
     let pruned h = of_v (Pruned h)
 
     let info_is_empty i =
@@ -1483,11 +1487,28 @@ module Make (P : Backend.S) = struct
       let of_value repo n updates =
         let updates' = StepMap.add step up updates in
         if updates == updates' then t
-        else of_value ~env repo n ~updates:updates'
+        else
+          let findv_cache =
+            match t.info.findv_cache with
+            | None -> None
+            | Some m ->
+                let m = StepMap.remove step m in
+                Some m
+          in
+          of_value ?findv_cache ~env repo n ~updates:updates'
       in
       let of_portable n updates =
         let updates' = StepMap.add step up updates in
-        if updates == updates' then t else of_portable_dirty ~env n updates'
+        if updates == updates' then t
+        else
+          let findv_cache =
+            match t.info.findv_cache with
+            | None -> None
+            | Some m ->
+                let m = StepMap.remove step m in
+                Some m
+          in
+          of_portable_dirty ?findv_cache ~env n updates'
       in
       match
         (Scan.cascade t
