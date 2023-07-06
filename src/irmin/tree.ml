@@ -481,7 +481,7 @@ module Make (P : Backend.S) = struct
              Portable_dirty (v, m))
       |> sealv
 
-    let of_v ?findv_cache ~env v =
+    let of_v ~findv_cache ~env v =
       let ptr, map, value =
         match v with
         | Map m -> (Ptr_none, Some m, None)
@@ -492,16 +492,16 @@ module Make (P : Backend.S) = struct
       let info = { ptr; map; value; findv_cache; env } in
       { v; info }
 
-    let of_map m = of_v (Map m)
-    let of_key repo k = of_v (Key (repo, k))
+    let of_map m = of_v ~findv_cache:None (Map m)
+    let of_key repo k = of_v ~findv_cache:None (Key (repo, k))
 
-    let of_value ?findv_cache ?updates ~env repo v =
-      of_v ?findv_cache ~env (Value (repo, v, updates))
+    let of_value ~findv_cache ?updates ~env repo v =
+      of_v ~findv_cache ~env (Value (repo, v, updates))
 
-    let of_portable_dirty ?findv_cache ~env p updates =
-      of_v ?findv_cache ~env (Portable_dirty (p, updates))
+    let of_portable_dirty ~findv_cache ~env p updates =
+      of_v ~findv_cache ~env (Portable_dirty (p, updates))
 
-    let pruned h = of_v (Pruned h)
+    let pruned h = of_v ~findv_cache:None (Pruned h)
 
     let info_is_empty i =
       i.map = None && i.value = None && i.findv_cache = None && i.ptr = Ptr_none
@@ -518,6 +518,7 @@ module Make (P : Backend.S) = struct
         i.ptr <- Ptr_none;
         i.findv_cache <- None)
 
+    (*
     let rec clear_elt ~max_depth depth v =
       match v with
       | `Contents (c, _) -> if depth + 1 > max_depth then Contents.clear c
@@ -545,6 +546,8 @@ module Make (P : Backend.S) = struct
       if depth >= max_depth then clear_info_fields i
 
     and clear ~max_depth depth t = clear_info ~v:t.v ~max_depth depth t.info
+    *)
+    let clear ~max_depth:_ _ _ = ()
 
     (* export t to the given repo and clear the cache *)
     let export ?clear:(c = true) repo t k =
@@ -1495,7 +1498,7 @@ module Make (P : Backend.S) = struct
                 let m = StepMap.remove step m in
                 Some m
           in
-          of_value ?findv_cache ~env repo n ~updates:updates'
+          of_value ~findv_cache ~env repo n ~updates:updates'
       in
       let of_portable n updates =
         let updates' = StepMap.add step up updates in
@@ -1508,7 +1511,7 @@ module Make (P : Backend.S) = struct
                 let m = StepMap.remove step m in
                 Some m
           in
-          of_portable_dirty ?findv_cache ~env n updates'
+          of_portable_dirty ~findv_cache ~env n updates'
       in
       match
         (Scan.cascade t
@@ -1549,7 +1552,7 @@ module Make (P : Backend.S) = struct
 
     let t node =
       let of_v v = of_v ~env:(Env.empty ()) v in
-      Type.map ~equal ~compare node of_v (fun t -> t.v)
+      Type.map ~equal ~compare node (of_v ~findv_cache:None) (fun t -> t.v)
 
     let _, t =
       Type.mu2 (fun _ y ->
@@ -1644,7 +1647,7 @@ module Make (P : Backend.S) = struct
 
   let of_backend_node repo n =
     let env = Env.empty () in
-    Node.of_value ~env repo n
+    Node.of_value ~findv_cache:None ~env repo n
 
   let dump ppf = function
     | `Node n -> Fmt.pf ppf "node: %a" Node.dump n
