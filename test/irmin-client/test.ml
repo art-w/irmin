@@ -36,7 +36,8 @@ module Make (R : R) = struct
   module Store = Irmin_client_unix.Make (X)
 
   let suite () =
-    let client = Client.Repo.v config in
+    Eio.Switch.run @@ fun sw ->
+    let client = Client.Repo.v ~sw config in
     let clean ~config:_ = Client.Branch.remove client "main" in
     Irmin_test.Suite.create_generic_key ~name:R.kind
       ~store:(module Store)
@@ -68,7 +69,7 @@ let unix_suite ~env () =
   end) in
   let tests = Unix_socket.suite () in
   let config = Irmin_client_unix.config uri in
-  let client = Client.Repo.v config in
+  let client = Client.Repo.v ~sw config in
   let client () = Lwt_eio.run_lwt @@ fun () -> Client.dup client in
   Irmin_test.Store.run "irmin-server.unix" ~and_exit:false ~sleep:Eio_unix.sleep
     ~misc:(misc client)

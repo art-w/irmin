@@ -39,7 +39,7 @@ module Make (Args : Gc_args.S) = struct
     latest_gc_target_offset : int63;
   }
 
-  let v ~root ~lower_root ~output ~generation ~unlink ~dispatcher ~fm
+  let v ~sw ~root ~lower_root ~output ~generation ~unlink ~dispatcher ~fm
       ~contents:_ ~node:_ ~commit:_ commit_key =
     let open Result_syntax in
     let new_suffix_start_offset, latest_gc_target_offset =
@@ -107,7 +107,7 @@ module Make (Args : Gc_args.S) = struct
     unlink_result_file ();
     (* start worker task *)
     let task =
-      Async.async (fun () ->
+      Async.async ~sw (fun () ->
           Worker.run_and_output_result root commit_key new_suffix_start_offset
             ~lower_root ~generation ~new_files_path)
     in
@@ -216,7 +216,8 @@ module Make (Args : Gc_args.S) = struct
     let open Result_syntax in
     let read_file () =
       let path = Irmin_pack.Layout.V4.gc_result ~root ~generation in
-      let* io = Io.open_ ~path ~readonly:true in
+      Eio.Switch.run @@ fun sw ->
+      let* io = Io.open_ ~sw ~path ~readonly:true in
       let* len = Io.read_size io in
       let len = Int63.to_int len in
       let* string = Io.read_to_string io ~off:Int63.zero ~len in

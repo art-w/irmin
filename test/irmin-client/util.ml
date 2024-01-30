@@ -39,7 +39,8 @@ let run_server ~sw ~clock s =
       let () = Irmin.Backend.Watch.set_listen_dir_hook Irmin_watcher.hook in
       let key = Irmin.Backend.Conf.root Irmin_mem.Conf.spec in
       let conf = Irmin.Backend.Conf.singleton Irmin_mem.Conf.spec key kind in
-      Lwt_eio.run_lwt (fun () -> Server.v ~uri conf >>= Server.serve ~stop);
+      Eio.Switch.run @@ fun sw ->
+      Lwt_eio.run_lwt (fun () -> Server.v ~sw ~uri conf >>= Server.serve ~stop);
       `Stop_daemon);
   Eio.Time.sleep clock 0.1;
   (kind, uri)

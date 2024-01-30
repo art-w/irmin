@@ -98,7 +98,7 @@ struct
 
     let fopt f = function None -> None | Some x -> Some (f x)
 
-    let v conf =
+    let v ~sw:_ conf =
       let { root; dot_git; head; bare; _ } = config conf in
       let dotgit = fopt Fpath.v dot_git in
       let root = Fpath.v root in

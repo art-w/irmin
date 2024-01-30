@@ -14,5 +14,6 @@
   irmin-git.unix
   eio
   eio_main
+  eio.core
   eio.unix
   lwt_eio))

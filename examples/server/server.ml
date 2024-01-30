@@ -19,15 +19,16 @@ open Lwt.Syntax
 module Server =
   Irmin_server_unix.Make_ext (Irmin_server.Conn.Codec.Bin) (Config.Store)
 
-let main () =
+let main env =
+  Eio.Switch.run @@ fun sw ->
   let config = Irmin_mem.config () in
   let dashboard = `TCP (`Port 1234) in
   let uri = Config.uri in
   Lwt_eio.run_lwt @@ fun () ->
-  let* server = Server.v ~uri ~dashboard config in
+  let* server = Server.v ~sw ~uri ~dashboard config in
   Format.printf "Listening on %a@." Uri.pp uri;
   Server.serve server
 
 let () =
   Eio_main.run @@ fun env ->
-  Lwt_eio.with_event_loop ~clock:env#clock @@ fun _ -> main ()
+  Lwt_eio.with_event_loop ~clock:env#clock @@ fun _ -> main env

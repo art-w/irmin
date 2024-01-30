@@ -22,7 +22,8 @@ module Info = Irmin_client_unix.Info (Client.Info)
 let info msg = Info.v ~author:"tester" msg
 
 let main () =
-  let client = Client.connect Config.uri in
+  Eio.Switch.run @@ fun sw ->
+  let client = Client.connect ~sw Config.uri in
   let main = Client.main client in
   Client.set_exn ~info:(info "set testing") main [ "testing" ] "testing";
   Client.set_exn ~info:(info "set remove") main [ "remove" ] "remove";
