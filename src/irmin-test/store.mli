@@ -15,6 +15,7 @@
  *)
 
 val run :
+  fs:Eio.Fs.dir_ty Eio.Path.t ->
   string ->
   ?and_exit:bool ->
   ?slow:bool ->
