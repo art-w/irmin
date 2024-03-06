@@ -21,11 +21,12 @@ module Server =
 
 let main env =
   Eio.Switch.run @@ fun sw ->
+  let fs = Eio.Stdenv.fs env in
   let config = Irmin_mem.config () in
   let dashboard = `TCP (`Port 1234) in
   let uri = Config.uri in
   Lwt_eio.run_lwt @@ fun () ->
-  let* server = Server.v ~sw ~uri ~dashboard config in
+  let* server = Server.v ~sw ~fs ~uri ~dashboard config in
   Format.printf "Listening on %a@." Uri.pp uri;
   Server.serve server
 
